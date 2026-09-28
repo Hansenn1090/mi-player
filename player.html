@@ -231,7 +231,7 @@
    CONFIGURACIÓN — IMPORTANTE: Cambia API_URL cuando despliegues en Render
    ═══════════════════════════════════════════════════════════════════════ */
 const CONFIG = {
-  API_URL: 'http://localhost:3000',   // ← En local. En producción pon tu URL de Render.
+  API_URL: 'https://mi-player-api.onrender.com',   // ← En local. En producción pon tu URL de Render.
   DEFAULT_TMDB_ID: '550',
   DEFAULT_TYPE:    'movie',
   idleTimeout:  5500,
@@ -835,7 +835,7 @@ async function init() {
   const tmdbId = params.get('id')   || CONFIG.DEFAULT_TMDB_ID;
   const type   = params.get('type') || CONFIG.DEFAULT_TYPE;
 
-  updateVerifyBar(0, 0, 'Conectando con la API…');
+  updateVerifyBar(0, 0, 'Conectando con la API Render');
   showLoad('Buscando servidores…');
 
   try {
