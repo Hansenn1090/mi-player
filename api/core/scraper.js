@@ -39,6 +39,14 @@ function dumpDebug(provider, html, reason) {
   console.warn(`[debug] ${provider} (${reason}) guardado en ${file}`);
 }
 
+// ─── Detectar tipo de servidor según la URL ────────────────────────
+function detectServerType(url) {
+  if (!url) return 'iframe';
+  if (/\.m3u8(\?|$)/i.test(url)) return 'hls';
+  if (/\.(mp4|webm|mkv|mov|ts)(\?|$)/i.test(url)) return 'mp4';
+  return 'iframe';
+}
+
 async function findDetailUrl(provider, base, title, type) {
   const searchUrl = provider.buildSearchUrl.call({ mirrors: [{ base }] }, null, type, title);
   const { data: html } = await http.get(searchUrl, {
@@ -86,23 +94,31 @@ async function scrapeProvider(provider, info, type) {
     for (const srv of rawServers) {
       try {
         const url = await provider.resolveEmbed(srv, { http, pickUA, mirror });
-        if (url) {
-          result.servers.push({
-            name: `${provider.name} - ${srv.name}`,
-            lang: srv.lang || 'latino',
-            url,
-          });
-        }
+        if (!url) continue;
+
+        const serverType = detectServerType(url);
+
+        result.servers.push({
+          name: srv.name,
+          lang: srv.lang || 'latino',
+          url: url,
+          type: serverType,
+        });
+
+        console.log(`  [${provider.key}] "${srv.name}" → ${serverType.toUpperCase()}`);
+
       } catch (e) {
         console.warn(`[${provider.key}] resolveEmbed: ${e.message}`);
       }
     }
 
     if (!result.servers.length) throw new Error('0 servidores resueltos');
-    console.log(`[${provider.key}] OK - ${result.servers.length} servidores en ${Date.now() - t0}ms`);
+    const hlsCount = result.servers.filter(s => s.type === 'hls' || s.type === 'mp4').length;
+    const iframeCount = result.servers.length - hlsCount;
+    console.log(`[${provider.key}] ✓ ${result.servers.length} servidores (${hlsCount} HLS/MP4, ${iframeCount} iframe) en ${Date.now() - t0}ms`);
   } catch (err) {
     result.error = err.message;
-    console.warn(`[${provider.key}] FAIL - ${err.message}`);
+    console.warn(`[${provider.key}] ✗ ${err.message}`);
   }
 
   return result;
@@ -123,9 +139,12 @@ async function scrapeAll(info, type) {
     if (r.status !== 'fulfilled') return;
     const { provider, servers, error } = r.value;
     sources[provider] = { ok: !error, count: servers.length, error: error || null };
+
     servers.forEach(s => {
       if (!byLang[s.lang]) byLang[s.lang] = {};
-      byLang[s.lang][s.name] = s.url;
+      // Prefijar el nombre con [HLS] o [IFRAME] para que el player sepa cómo tratarlo
+      const prefixedName = `[${s.type.toUpperCase()}] ${s.name}`;
+      byLang[s.lang][prefixedName] = s.url;
     });
   });
 
