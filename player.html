@@ -8,233 +8,85 @@
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script>
     tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              cyan: '#00d2ff',
-              blue: '#2563eb',
-              dark: '#0a0a0c',
-              track: '#383a42',
-              card: 'rgba(20, 22, 28, 0.85)'
-            }
-          },
-          fontFamily: {
-            sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif']
-          }
-        }
-      }
+      theme: { extend: {
+        colors: { brand: { cyan:'#00d2ff', blue:'#2563eb', dark:'#0a0a0c', track:'#383a42', card:'rgba(20,22,28,0.85)' } },
+        fontFamily: { sans: ['Inter','system-ui','-apple-system','Segoe UI','Roboto','sans-serif'] }
+      }}
     }
   </script>
-<style data-purpose="scrubber-range-styling">
-    input[type=range] {
-      -webkit-appearance: none;
-      appearance: none;
-      background: transparent;
-      cursor: pointer;
-    }
-    input[type=range]:focus {
-      outline: none;
-    }
-    input[type=range]::-webkit-slider-runnable-track {
-      height: 4px;
-      border-radius: 9999px;
-      background: transparent;
-    }
-    input[type=range]::-moz-range-track {
-      height: 4px;
-      border-radius: 9999px;
-      background: transparent;
-    }
-    input[type=range]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      height: 14px;
-      width: 14px;
-      border-radius: 50%;
-      background: #00d2ff;
-      margin-top: -5px;
-      box-shadow: 0 0 10px rgba(0, 210, 255, 0.85);
-      border: 2px solid #ffffff;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    input[type=range]::-moz-range-thumb {
-      height: 14px;
-      width: 14px;
-      border-radius: 50%;
-      background: #00d2ff;
-      border: 2px solid #ffffff;
-      box-shadow: 0 0 10px rgba(0, 210, 255, 0.85);
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    input[type=range]:hover::-webkit-slider-thumb,
-    input[type=range]:active::-webkit-slider-thumb {
-      transform: scale(1.3);
-      box-shadow: 0 0 14px #00d2ff;
-    }
-  </style>
-<style data-purpose="animations-and-helpers">
-    .hud-transition {
-      transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    .hud-hidden {
-      opacity: 0 !important;
-      pointer-events: none !important;
-      transform: translateY(16px);
-    }
-    .key-badge {
-      background: rgba(255, 255, 255, 0.9);
-      color: #000;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.05em;
-      border-radius: 2px;
-      padding: 1px 4px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      line-height: 1.2;
-    }
-    .aspect-mode-16-9 {
-      width: 100% !important;
-      height: 100% !important;
-      object-fit: contain;
-      transform: scale(1);
-    }
-    .aspect-mode-stretch {
-      width: 100% !important;
-      height: 100% !important;
-      transform: scale(1.05, 1.05);
-    }
-    .aspect-mode-4-3 {
-      width: 75% !important;
-      height: 100% !important;
-      margin: 0 auto;
-    }
-    .tv-btn-normal {
-      background: rgba(43, 50, 63, 0.82);
-      backdrop-filter: blur(10px);
-      color: #d1d5db;
-      transition: all 0.2s ease;
-    }
-    .tv-btn-normal:hover {
-      background: rgba(60, 70, 88, 0.95);
-      color: #ffffff;
-    }
-    .tv-btn-active {
-      background: rgba(72, 85, 107, 0.98) !important;
-      backdrop-filter: blur(10px);
-      color: #ffffff !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-      border-color: #00d2ff !important;
-    }
-    .options-drawer-panel {
-      transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    .options-drawer-collapsed {
-      opacity: 0;
-      pointer-events: none;
-      transform: translateY(16px) scale(0.98);
-      max-height: 0;
-      margin-bottom: 0 !important;
-      padding-top: 0 !important;
-      padding-bottom: 0 !important;
-      overflow: hidden;
-    }
-    .options-drawer-expanded {
-      opacity: 1;
-      pointer-events: auto;
-      transform: translateY(0) scale(1);
-      max-height: 560px;
-    }
-    .custom-scrollbar::-webkit-scrollbar {
-      width: 4px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.05);
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: rgba(0, 210, 255, 0.4);
-      border-radius: 4px;
-    }
-    .srv-btn-dyn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 10px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      flex: 1;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s;
-      color: #d1d5db;
-    }
-    .srv-btn-dyn .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #64748b;
-      flex-shrink: 0;
-    }
-    .srv-btn-dyn.active .dot { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
-
-    /* Loading overlay */
-    #load-overlay {
-      position: fixed; inset: 0; z-index: 40;
-      display: none; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 16px; background: rgba(0,0,0,0.85);
-      backdrop-filter: blur(14px);
-    }
-    #load-overlay.on { display: flex; }
-    #load-overlay .ld-spin {
-      width: 40px; height: 40px;
-      border: 3px solid rgba(255,255,255,0.12);
-      border-top-color: #00d2ff;
-      border-radius: 50%;
-      animation: spin 0.9s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #load-overlay .ld-msg {
-      font-size: 14px; color: rgba(255,255,255,0.8);
-      text-align: center; padding: 0 20px;
-      max-width: 500px; line-height: 1.5;
-    }
-    #load-overlay .ld-msg small {
-      display: block; font-size: 11px;
-      color: rgba(255,255,255,0.4); margin-top: 6px;
-    }
-  </style>
+<style>
+input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
+input[type=range]:focus{outline:none}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:9999px;background:transparent}
+input[type=range]::-moz-range-track{height:4px;border-radius:9999px;background:transparent}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;height:14px;width:14px;border-radius:50%;background:#00d2ff;margin-top:-5px;box-shadow:0 0 10px rgba(0,210,255,.85);border:2px solid #fff}
+input[type=range]::-moz-range-thumb{height:14px;width:14px;border-radius:50%;background:#00d2ff;border:2px solid #fff}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.3);box-shadow:0 0 14px #00d2ff}
+.hud-transition{transition:opacity .35s cubic-bezier(.16,1,.3,1),transform .35s cubic-bezier(.16,1,.3,1)}
+.hud-hidden{opacity:0!important;pointer-events:none!important;transform:translateY(16px)}
+.key-badge{background:rgba(255,255,255,.9);color:#000;font-size:10px;font-weight:800;border-radius:2px;padding:1px 4px;display:inline-flex;align-items:center;line-height:1.2}
+.aspect-mode-16-9{width:100%!important;height:100%!important;object-fit:contain;transform:scale(1)}
+.aspect-mode-stretch{width:100%!important;height:100%!important;transform:scale(1.05,1.05)}
+.aspect-mode-4-3{width:75%!important;height:100%!important;margin:0 auto}
+.tv-btn-normal{background:rgba(43,50,63,.82);backdrop-filter:blur(10px);color:#d1d5db;transition:all .2s}
+.tv-btn-normal:hover{background:rgba(60,70,88,.95);color:#fff}
+.tv-btn-active{background:rgba(72,85,107,.98)!important;backdrop-filter:blur(10px);color:#fff!important;box-shadow:0 2px 8px rgba(0,0,0,.4);border-color:#00d2ff!important}
+.options-drawer-panel{transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .3s cubic-bezier(.16,1,.3,1),max-height .3s cubic-bezier(.16,1,.3,1)}
+.options-drawer-collapsed{opacity:0;pointer-events:none;transform:translateY(16px) scale(.98);max-height:0;margin-bottom:0!important;padding-top:0!important;padding-bottom:0!important;overflow:hidden}
+.options-drawer-expanded{opacity:1;pointer-events:auto;transform:translateY(0) scale(1);max-height:560px}
+.custom-scrollbar::-webkit-scrollbar{width:4px}
+.custom-scrollbar::-webkit-scrollbar-thumb{background:rgba(0,210,255,.4);border-radius:4px}
+.srv-btn-dyn{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;font-size:13px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;border:none;cursor:pointer;transition:all .2s;color:#d1d5db}
+.srv-btn-dyn .dot{width:8px;height:8px;border-radius:50%;background:#64748b;flex-shrink:0}
+.srv-btn-dyn.active .dot{background:#22c55e;box-shadow:0 0 8px #22c55e}
+#load-overlay{position:fixed;inset:0;z-index:40;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:rgba(0,0,0,.85);backdrop-filter:blur(14px)}
+#load-overlay.on{display:flex}
+#load-overlay .ld-spin{width:40px;height:40px;border:3px solid rgba(255,255,255,.12);border-top-color:#00d2ff;border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#load-overlay .ld-msg{font-size:14px;color:rgba(255,255,255,.8);text-align:center;padding:0 20px;max-width:500px;line-height:1.5}
+#load-overlay .ld-msg small{display:block;font-size:11px;color:rgba(255,255,255,.4);margin-top:6px}
+</style>
 </head>
 <body class="h-full w-full overflow-hidden bg-black text-white font-sans antialiased relative">
 <main class="relative w-full h-full bg-black overflow-hidden flex items-center justify-center" id="playerContainer">
+
 <div class="absolute inset-0 w-full h-full flex items-center justify-center z-[1] bg-black" id="video-wrapper">
-<iframe allow="autoplay; fullscreen; encrypted-media; picture-in-picture; payment; display-capture; clipboard-write" allowfullscreen="true" class="w-full h-full absolute inset-0 border-0 aspect-mode-16-9 transition-transform duration-300 bg-black pointer-events-auto" height="100%" id="unlimplay-iframe" mozallowfullscreen="true" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-downloads" scrolling="no" src="about:blank" title="Reproductor Streaming Video" webkitallowfullscreen="true" width="100%"></iframe>
+<!-- IFRAME ORIGINAL SIN SANDBOX (pero con ad blocker en el parent) -->
+<iframe
+  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+  allowfullscreen="true"
+  class="w-full h-full absolute inset-0 border-0 aspect-mode-16-9 transition-transform duration-300 bg-black pointer-events-auto"
+  height="100%"
+  id="unlimplay-iframe"
+  mozallowfullscreen="true"
+  referrerpolicy="no-referrer"
+  scrolling="no"
+  src="about:blank"
+  title="Reproductor Streaming Video"
+  webkitallowfullscreen="true"
+  width="100%"></iframe>
 </div>
 
-<!-- Loading overlay global -->
 <div id="load-overlay">
   <div class="ld-spin"></div>
-  <div class="ld-msg" id="load-msg">Conectando con el servidor…<small>Primera carga: hasta 60 segundos (cold start)</small></div>
+  <div class="ld-msg" id="load-msg">Conectando con el servidor…<small>Primera carga: hasta 60 segundos</small></div>
 </div>
 
 <div class="absolute inset-x-0 bottom-0 h-32 z-20 pointer-events-auto opacity-0" id="bottom-hover-detector"></div>
 <header class="absolute top-5 inset-x-6 z-30 pointer-events-none hud-element hud-transition flex items-center justify-end"></header>
+
 <div class="fixed top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 -translate-y-3 transition-all duration-300 flex items-center space-x-2.5 px-4 py-2 rounded-xl bg-zinc-900/90 border border-brand-cyan/40 text-brand-cyan shadow-xl backdrop-blur-md" id="toast-notify">
 <span class="w-2 h-2 rounded-full bg-brand-cyan animate-ping"></span>
 <span class="text-xs sm:text-sm font-medium text-white tracking-wide" id="toast-text">Cargando servidores…</span>
 </div>
+
 <div class="absolute z-30 pointer-events-none opacity-0 scale-75 transition-all duration-300 ease-out flex items-center justify-center p-6 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white shadow-2xl top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" id="action-flash">
 <svg class="w-12 h-12" fill="currentColor" id="action-flash-icon" viewbox="0 0 24 24"></svg>
 </div>
+
 <div class="absolute inset-x-0 bottom-0 z-30 hud-element hud-transition pb-2 pt-20 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none flex flex-col justify-end" id="osd-hud">
 <div class="w-full max-w-[1920px] mx-auto px-6 md:px-12 lg:px-14 pb-1 pointer-events-auto space-y-3">
-<div class="options-drawer-panel options-drawer-collapsed bg-zinc-950/95 backdrop-blur-xl border border-white/15 rounded-2xl p-4 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.9)] flex flex-col gap-3.5 mb-2 overflow-y-auto max-h-[520px] custom-scrollbar" id="options-panel-container">
+<div class="options-drawer-panel options-drawer-collapsed bg-zinc-950/95 backdrop-blur-xl border border-white/15 rounded-2xl p-4 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,.9)] flex flex-col gap-3.5 mb-2 overflow-y-auto max-h-[520px] custom-scrollbar" id="options-panel-container">
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-3 border-b border-white/10">
   <div class="space-y-1.5" id="group-audio-options">
@@ -243,9 +95,9 @@
       <span class="text-[10px] text-emerald-400 font-mono tracking-tight font-semibold" id="badge-active-audio">— Activo</span>
     </div>
     <div class="inline-flex rounded overflow-hidden shadow-lg border border-white/10 divide-x divide-white/10 w-full" role="group">
-      <button class="tv-btn-normal tv-btn-active px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-audio="latino" type="button"><span>🇲🇽 Español Latino</span></button>
-      <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-audio="castellano" type="button"><span>🇪🇸 Castellano</span></button>
-      <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-audio="ingles" type="button"><span>🇺🇸 Inglés VOSE</span></button>
+      <button class="tv-btn-normal tv-btn-active px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-audio="latino" type="button">🇲🇽 Español Latino</button>
+      <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-audio="castellano" type="button">🇪🇸 Castellano</button>
+      <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-audio="ingles" type="button">🇺🇸 Inglés VOSE</button>
     </div>
   </div>
   <div class="space-y-1.5" id="group-subtitle-options">
@@ -254,9 +106,9 @@
       <span class="text-[10px] text-neutral-400 font-mono tracking-tight" id="badge-active-subtitle">DESACTIVADOS</span>
     </div>
     <div class="inline-flex rounded overflow-hidden shadow-lg border border-white/10 divide-x divide-white/10 w-full" role="group">
-      <button class="tv-btn-normal tv-btn-active px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-sub="off" type="button"><span>Desactivados</span></button>
-      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-sub="es" type="button"><span>Español Latino</span></button>
-      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-sub="forced" type="button"><span>Forzados</span></button>
+      <button class="tv-btn-normal tv-btn-active px-3 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-sub="off" type="button">Desactivados</button>
+      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-sub="es" type="button">Español</button>
+      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-sub="forced" type="button">Forzados</button>
     </div>
   </div>
 </div>
@@ -264,28 +116,28 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-3 border-b border-white/10">
   <div class="space-y-1.5" id="group-quality-options">
     <div class="flex items-center justify-between">
-      <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">CALIDAD DE TRANSMISIÓN</span>
+      <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">CALIDAD</span>
       <span class="text-[10px] text-brand-cyan font-mono tracking-tight">AUTO</span>
     </div>
     <div class="inline-flex rounded overflow-hidden shadow-lg border border-white/10 divide-x divide-white/10 w-full" role="group">
-      <button class="tv-btn-normal tv-btn-active px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-quality="1080" type="button"><span>Auto (1080p)</span></button>
-      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-quality="720" type="button"><span>720p HD</span></button>
-      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-quality="480" type="button"><span>480p SD</span></button>
+      <button class="tv-btn-normal tv-btn-active px-3 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-quality="1080" type="button">Auto (1080p)</button>
+      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-quality="720" type="button">720p HD</button>
+      <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-quality="480" type="button">480p SD</button>
     </div>
   </div>
   <div class="space-y-1.5" id="group-formato-pantalla">
     <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">FORMATO DE PANTALLA</span>
     <div class="inline-flex rounded overflow-hidden shadow-lg border border-white/10 divide-x divide-white/10 w-full" role="group">
-      <button class="tv-btn-normal tv-btn-active px-3.5 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-aspect="16-9" type="button"><span>16:9</span></button>
-      <button class="tv-btn-normal px-3.5 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-aspect="stretch" type="button"><span>Completa</span></button>
-      <button class="tv-btn-normal px-3.5 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center transition" data-aspect="4-3" type="button"><span>4:3</span></button>
+      <button class="tv-btn-normal tv-btn-active px-3.5 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-aspect="16-9" type="button">16:9</button>
+      <button class="tv-btn-normal px-3.5 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-aspect="stretch" type="button">Completa</button>
+      <button class="tv-btn-normal px-3.5 py-2 text-xs sm:text-sm font-medium flex-1 transition" data-aspect="4-3" type="button">4:3</button>
     </div>
   </div>
 </div>
 
 <div class="space-y-1.5" id="group-reproductor-bar">
   <div class="flex items-center justify-between">
-    <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">SERVIDORES DISPONIBLES</span>
+    <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">SERVIDORES</span>
     <span class="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
       <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
       <span id="server-status-pill">Conectando…</span>
@@ -295,38 +147,33 @@
 </div>
 
 <div class="flex items-center justify-between pt-1 border-t border-white/10 flex-wrap gap-2">
-  <span class="text-xs text-neutral-400">Todos los servidores cuentan con certificados SSL activos.</span>
-  <div class="flex items-center space-x-2">
-    <button class="tv-btn-normal px-3 py-1.5 text-xs rounded-lg text-rose-300 hover:text-white transition flex items-center space-x-1.5" id="btn-bar-feedback" type="button">
-      <svg class="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
-      <span>Reportar Servidor</span>
-    </button>
-  </div>
+  <span class="text-xs text-neutral-400">Servidores con SSL activo</span>
+  <button class="tv-btn-normal px-3 py-1.5 text-xs rounded-lg text-rose-300 hover:text-white transition" id="btn-bar-feedback" type="button">Reportar</button>
 </div>
 </div>
 
 <div class="flex items-center gap-4 sm:gap-5">
-  <div class="w-14 h-20 sm:w-16 sm:h-24 md:w-20 md:h-28 rounded-lg overflow-hidden shadow-2xl bg-neutral-900 border border-white/10 flex-shrink-0 relative group cursor-pointer hover:border-brand-cyan transition" id="poster-thumb" title="Ver detalles">
-    <img alt="Poster" class="w-full h-full object-cover" id="poster-img" loading="lazy" src=""/>
-    <div class="absolute inset-0 bg-black/20 group-hover:bg-transparent transition"></div>
+  <div class="w-14 h-20 sm:w-16 sm:h-24 md:w-20 md:h-28 rounded-lg overflow-hidden shadow-2xl bg-neutral-900 border border-white/10 flex-shrink-0 relative cursor-pointer hover:border-brand-cyan transition" id="poster-thumb">
+    <img alt="Poster" class="w-full h-full object-cover" id="poster-img" src=""/>
+    <div class="absolute inset-0 bg-black/20 hover:bg-transparent transition"></div>
   </div>
-  <div class="flex-1 flex flex-col justify-center min-w-0 space-y-2.5 sm:space-y-3">
+  <div class="flex-1 flex flex-col justify-center min-w-0 space-y-2.5">
     <div class="flex items-center space-x-3 sm:space-x-4">
-      <span class="text-xs sm:text-sm md:text-base font-medium tracking-tight text-white min-w-[45px] sm:min-w-[50px] text-right font-mono" id="current-time-text">00:00</span>
-      <div class="relative flex-grow flex items-center group py-2" id="scrubber-container">
+      <span class="text-xs sm:text-sm font-medium text-white min-w-[50px] text-right font-mono" id="current-time-text">00:00</span>
+      <div class="relative flex-grow flex items-center py-2">
         <div class="w-full h-1 bg-brand-track rounded-full overflow-hidden relative pointer-events-none">
-          <div class="h-full bg-gradient-to-r from-blue-500 to-brand-cyan transition-all duration-75" id="progress-fill" style="width: 0%;"></div>
+          <div class="h-full bg-gradient-to-r from-blue-500 to-brand-cyan transition-all duration-75" id="progress-fill" style="width:0%"></div>
         </div>
-        <input aria-label="Seek progress slider" class="absolute inset-0 w-full h-full opacity-100 cursor-pointer z-10" id="seek-slider" max="100" min="0" step="0.05" type="range" value="0"/>
+        <input aria-label="Seek" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" id="seek-slider" max="100" min="0" step="0.05" type="range" value="0"/>
       </div>
-      <span class="text-xs sm:text-sm md:text-base font-medium tracking-tight text-gray-300 min-w-[55px] sm:min-w-[65px] font-mono" id="duration-time-text">--:--</span>
+      <span class="text-xs sm:text-sm font-medium text-gray-300 min-w-[65px] font-mono" id="duration-time-text">--:--</span>
     </div>
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
       <div class="min-w-0">
-        <h1 class="text-base sm:text-xl md:text-2xl font-normal tracking-wide text-white drop-shadow truncate" id="movie-title">Cargando…</h1>
-        <p class="text-[11px] sm:text-xs md:text-sm text-neutral-400 font-light truncate mt-0.5" id="movie-subtitle">—</p>
+        <h1 class="text-base sm:text-xl md:text-2xl font-normal text-white drop-shadow truncate" id="movie-title">Cargando…</h1>
+        <p class="text-[11px] sm:text-xs text-neutral-400 truncate mt-0.5" id="movie-subtitle">—</p>
       </div>
-      <div class="flex flex-wrap items-center gap-2.5 sm:gap-4 md:gap-5 text-xs sm:text-sm text-neutral-200 flex-shrink-0">
+      <div class="flex flex-wrap items-center gap-2.5 sm:gap-4 text-xs sm:text-sm text-neutral-200 flex-shrink-0">
         <button class="flex items-center space-x-1.5 hover:text-white transition" id="btn-legend-exit" type="button"><span class="key-badge">EXIT</span><span>Vuelta</span></button>
         <button class="flex items-center space-x-1.5 hover:text-white transition" id="btn-legend-play" type="button"><span class="key-badge">OK</span><span id="legend-play-label">Reproducir/Pausar</span></button>
         <button class="flex items-center space-x-1.5 hover:text-white transition" id="btn-legend-rewind" type="button"><span class="key-badge">◀</span><span>Detrás</span></button>
@@ -339,7 +186,7 @@
 </div>
 
 <div class="flex justify-center pb-2 pointer-events-auto">
-  <button aria-label="Abrir panel de opciones" class="text-neutral-400 hover:text-white transition-all duration-300 hover:scale-125 p-2 rounded-full hover:bg-white/10" id="btn-toggle-options">
+  <button class="text-neutral-400 hover:text-white transition-all duration-300 hover:scale-125 p-2 rounded-full hover:bg-white/10" id="btn-toggle-options">
     <svg class="w-7 h-7 transform transition-transform duration-300 ease-out" fill="none" id="toggle-chevron" stroke="currentColor" viewbox="0 0 24 24">
       <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
     </svg>
@@ -347,44 +194,33 @@
 </div>
 </div>
 
-<button aria-label="Mostrar controles" class="fixed bottom-3 left-1/2 -translate-x-1/2 z-30 opacity-0 pointer-events-none transition-all duration-300 p-2 text-white/70 hover:text-white bg-black/60 backdrop-blur rounded-full border border-white/15 shadow-xl hover:scale-110" id="btn-reveal-hud">
-  <svg class="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewbox="0 0 24 24">
-    <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
-  </svg>
+<button class="fixed bottom-3 left-1/2 -translate-x-1/2 z-30 opacity-0 pointer-events-none transition-all duration-300 p-2 text-white/70 hover:text-white bg-black/60 backdrop-blur rounded-full border border-white/15" id="btn-reveal-hud">
+  <svg class="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path></svg>
 </button>
 
 <div class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md opacity-0 pointer-events-none transition-opacity duration-300 flex items-center justify-center p-4" id="feedback-modal">
-<div class="bg-zinc-950 border border-white/15 max-w-md w-full rounded-2xl p-6 shadow-2xl relative transform scale-95 transition-transform duration-300" id="feedback-card">
+<div class="bg-zinc-950 border border-white/15 max-w-md w-full rounded-2xl p-6 shadow-2xl transform scale-95 transition-transform duration-300" id="feedback-card">
 <button class="absolute top-4 right-4 text-neutral-400 hover:text-white p-2 rounded-lg bg-white/5" id="btn-close-feedback">✕</button>
-<div class="flex items-center space-x-3 mb-4">
-  <div class="p-2.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
-    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
-  </div>
-  <div>
-    <h3 class="text-base font-semibold text-white">Reportar Falla</h3>
-    <p class="text-xs text-neutral-400">¿Qué inconveniente estás experimentando?</p>
-  </div>
-</div>
+<h3 class="text-base font-semibold text-white mb-4">Reportar Falla</h3>
 <form class="space-y-3" id="feedback-form">
   <label class="flex items-center p-2.5 rounded-lg bg-white/5 border border-white/10 cursor-pointer">
-    <input checked class="text-cyan-500 bg-neutral-900 border-neutral-700" name="issue" type="radio" value="audio_sync"/>
-    <span class="ml-2.5 text-xs text-neutral-200">Audio desfasado o sin sonido</span>
+    <input checked name="issue" type="radio" value="audio_sync"/>
+    <span class="ml-2.5 text-xs text-neutral-200">Audio desfasado</span>
   </label>
   <label class="flex items-center p-2.5 rounded-lg bg-white/5 border border-white/10 cursor-pointer">
-    <input class="text-cyan-500 bg-neutral-900 border-neutral-700" name="issue" type="radio" value="server_freeze"/>
-    <span class="ml-2.5 text-xs text-neutral-200">Video pausado o servidor caído</span>
+    <input name="issue" type="radio" value="server_freeze"/>
+    <span class="ml-2.5 text-xs text-neutral-200">Servidor caído</span>
   </label>
-  <textarea class="w-full text-xs bg-white/5 border border-white/10 rounded-lg p-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-cyan-400" placeholder="Detalle adicional (opcional)..." rows="2"></textarea>
   <div class="pt-3 flex justify-end space-x-2">
-    <button class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition" id="btn-cancel-feedback" type="button">Cancelar</button>
-    <button class="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-semibold transition" type="submit">Enviar Reporte</button>
+    <button class="px-4 py-2 rounded-lg bg-white/10 text-white text-xs" id="btn-cancel-feedback" type="button">Cancelar</button>
+    <button class="px-4 py-2 rounded-lg bg-cyan-500 text-black text-xs font-semibold" type="submit">Enviar</button>
   </div>
 </form>
 </div>
 </div>
 
 <div class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md opacity-0 pointer-events-none transition-opacity duration-300 flex items-center justify-center p-4" id="info-modal">
-<div class="bg-zinc-900/95 border border-white/15 max-w-2xl w-full rounded-2xl p-6 sm:p-8 shadow-2xl relative transform scale-95 transition-transform duration-300" id="info-modal-card">
+<div class="bg-zinc-900/95 border border-white/15 max-w-2xl w-full rounded-2xl p-6 shadow-2xl transform scale-95 transition-transform duration-300" id="info-modal-card">
 <button class="absolute top-4 right-4 text-neutral-400 hover:text-white p-2 rounded-lg bg-white/5" id="btn-close-modal">✕</button>
 <div class="flex flex-col sm:flex-row gap-6">
   <img alt="Poster" class="w-32 h-48 sm:w-44 sm:h-64 object-cover rounded-lg border border-white/10 flex-shrink-0 mx-auto" id="info-poster" src=""/>
@@ -396,18 +232,111 @@
     <div class="pt-2 border-t border-white/10 grid grid-cols-2 gap-2 text-xs text-neutral-400" id="info-meta"></div>
   </div>
 </div>
-<div class="mt-6 pt-4 border-t border-white/10 flex justify-end gap-3">
-  <button class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition" id="btn-modal-close-action">Cerrar</button>
-  <button class="px-5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-semibold text-sm transition" id="btn-modal-action-play">Continuar Viendo</button>
-</div>
 </div>
 </div>
 </main>
 
+<!-- ═══════════════════════════════════════════════════════════════════
+     AD BLOCKER (funciona sobre el parent + intercepta window.open)
+     ═══════════════════════════════════════════════════════════════════ -->
+<script data-purpose="ad-blocker">
+(function() {
+  const AD_DOMAINS = [
+    'doubleclick.net','googlesyndication.com','googleadservices.com','googletagmanager.com',
+    'googletagservices.com','adservice.google.com','popads.net','popcash.net',
+    'propellerads.com','adcash.com','exoclick.com','juicyads.com','trafficjunky.com',
+    'adsterra.com','hilltopads.net','clickadu.com','mgid.com','revcontent.com',
+    'taboola.com','outbrain.com','zedo.com','adbrite.com','servetraff.com',
+    'vidoomy.com','onclickads.net','adnium.com','bidvertiser.com','adf.ly',
+    'shorte.st','linkbucks.com','clickaine.com','adplugg.com','adroll.com',
+    'criteo.com','pubmatic.com','rubiconproject.com','openx.net','appnexus.com',
+    'smartadserver.com','adform.net','serving-sys.com','adnxs.com','adsrvr.org',
+    'yieldmo.com','33across.com','sharethrough.com','triplelift.com','sovrn.com',
+    'indexww.com','amazon-adsystem.com','casalemedia.com','contextweb.com',
+    'districtm.io','gumgum.com','media.net','sonobi.com','spotxchange.com',
+    'teads.tv','undertone.com','video.unrulymedia.com','yieldlab.net'
+  ];
+
+  function isAdUrl(url) {
+    try {
+      const u = String(url || '').toLowerCase();
+      return AD_DOMAINS.some(d => u.includes(d));
+    } catch { return false; }
+  }
+
+  // 1) Bloquear window.open (popups)
+  const origOpen = window.open;
+  window.open = function(url, ...args) {
+    if (isAdUrl(url) || !url) {
+      console.log('[AdBlock] 🛡️ Popup bloqueado:', url);
+      return null;
+    }
+    return origOpen.apply(this, [url, ...args]);
+  };
+
+  // 2) Interceptar fetch
+  const origFetch = window.fetch;
+  window.fetch = function(input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url);
+    if (isAdUrl(url)) {
+      console.log('[AdBlock] 🛡️ Fetch bloqueado:', url);
+      return Promise.reject(new Error('Blocked by AdBlock'));
+    }
+    return origFetch.apply(this, arguments);
+  };
+
+  // 3) Interceptar XHR
+  const origXHROpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    if (isAdUrl(url)) {
+      console.log('[AdBlock] 🛡️ XHR bloqueado:', url);
+      this._blocked = true;
+      return;
+    }
+    return origXHROpen.apply(this, [method, url, ...rest]);
+  };
+  const origXHRSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function(...args) {
+    if (this._blocked) return;
+    return origXHRSend.apply(this, args);
+  };
+
+  // 4) Interceptar Image (pixels de tracking)
+  const origImgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+  if (origImgDesc) {
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      set: function(value) {
+        if (isAdUrl(value)) {
+          console.log('[AdBlock] 🛡️ Pixel bloqueado:', value);
+          return;
+        }
+        return origImgDesc.set.call(this, value);
+      },
+      get: function() { return origImgDesc.get.call(this); }
+    });
+  }
+
+  // 5) Bloquear click en popups desde iframes
+  document.addEventListener('click', function(e) {
+    const a = e.target.closest && e.target.closest('a');
+    if (!a) return;
+    const target = (a.getAttribute('target') || '').toLowerCase();
+    const href = a.getAttribute('href') || '';
+    if (target === '_blank' && isAdUrl(href)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      console.log('[AdBlock] 🛡️ Link popup bloqueado:', href);
+    }
+  }, true);
+
+  console.log('[AdBlock] ✅ Bloqueador activo - ' + AD_DOMAINS.length + ' dominios en lista negra');
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     LÓGICA DEL PLAYER + DETECTOR
+     ═══════════════════════════════════════════════════════════════════ -->
 <script data-purpose="smart-tv-player-controller">
-/* ═══════════════════════════════════════════════════════════════════════
-   CONFIGURACIÓN — El player NO tiene la API key. La usa el backend.
-   ═══════════════════════════════════════════════════════════════════════ */
 const CONFIG = {
   API_URL: 'https://mi-player-api.onrender.com',
   DEFAULT_TMDB_ID: '550',
@@ -421,72 +350,39 @@ let CURRENT_LANG = 'latino';
 let CURRENT_SERVER_ID = null;
 
 const state = {
-  isPlaying: false,
-  currentTime: 0,
-  duration: 0,
-  isHudVisible: true,
-  isOptionsDrawerOpen: false,
-  isModalOpen: false,
-  isFeedbackOpen: false,
-  isDirectMode: false,
-  isSeeking: false,
-  idleTimer: null,
-  currentAudio: 'latino',
-  currentSubtitle: 'off',
-  currentAspect: '16-9',
+  isPlaying: false, currentTime: 0, duration: 0,
+  isHudVisible: true, isOptionsDrawerOpen: false,
+  isModalOpen: false, isFeedbackOpen: false,
+  isDirectMode: false, isSeeking: false, idleTimer: null,
+  currentAudio: 'latino', currentSubtitle: 'off', currentAspect: '16-9',
   activePlayer: null,
 };
 
 const $ = id => document.getElementById(id);
 const els = {
-  iframe: $('unlimplay-iframe'),
-  hud: $('osd-hud'),
-  slider: $('seek-slider'),
-  progressFill: $('progress-fill'),
-  currentTimeText: $('current-time-text'),
-  durationTimeText: $('duration-time-text'),
-  optionsPanel: $('options-panel-container'),
-  btnToggleOptions: $('btn-toggle-options'),
-  btnRevealHud: $('btn-reveal-hud'),
-  toggleChevron: $('toggle-chevron'),
-  actionFlash: $('action-flash'),
-  actionFlashIcon: $('action-flash-icon'),
-  toastNotify: $('toast-notify'),
-  toastText: $('toast-text'),
-  infoModal: $('info-modal'),
-  infoModalCard: $('info-modal-card'),
-  btnCloseModal: $('btn-close-modal'),
-  btnModalCloseAction: $('btn-modal-close-action'),
-  btnModalPlay: $('btn-modal-action-play'),
-  posterThumb: $('poster-thumb'),
-  btnExit: $('btn-legend-exit'),
-  btnPlay: $('btn-legend-play'),
-  btnRewind: $('btn-legend-rewind'),
-  btnForward: $('btn-legend-forward'),
-  btnInfo: $('btn-legend-info'),
-  legendPlayLabel: $('legend-play-label'),
-  btnBarFeedback: $('btn-bar-feedback'),
-  badgeActiveAudio: $('badge-active-audio'),
-  badgeActiveSubtitle: $('badge-active-subtitle'),
-  feedbackModal: $('feedback-modal'),
-  feedbackCard: $('feedback-card'),
-  btnCloseFeedback: $('btn-close-feedback'),
-  btnCancelFeedback: $('btn-cancel-feedback'),
-  feedbackForm: $('feedback-form'),
-  bottomHoverDetector: $('bottom-hover-detector'),
-  serverButtonsContainer: $('server-buttons-container'),
-  serverStatusPill: $('server-status-pill'),
-  movieTitle: $('movie-title'),
-  movieSubtitle: $('movie-subtitle'),
-  posterImg: $('poster-img'),
-  infoPoster: $('info-poster'),
-  infoTitle: $('info-title'),
-  infoOriginal: $('info-original'),
-  infoDescription: $('info-description'),
-  infoBadges: $('info-badges'),
-  infoMeta: $('info-meta'),
-  loadOverlay: $('load-overlay'),
-  loadMsg: $('load-msg'),
+  iframe: $('unlimplay-iframe'), hud: $('osd-hud'),
+  slider: $('seek-slider'), progressFill: $('progress-fill'),
+  currentTimeText: $('current-time-text'), durationTimeText: $('duration-time-text'),
+  optionsPanel: $('options-panel-container'), btnToggleOptions: $('btn-toggle-options'),
+  btnRevealHud: $('btn-reveal-hud'), toggleChevron: $('toggle-chevron'),
+  actionFlash: $('action-flash'), actionFlashIcon: $('action-flash-icon'),
+  toastNotify: $('toast-notify'), toastText: $('toast-text'),
+  infoModal: $('info-modal'), infoModalCard: $('info-modal-card'),
+  btnCloseModal: $('btn-close-modal'), btnModalPlay: $('btn-modal-action-play'),
+  posterThumb: $('poster-thumb'), btnExit: $('btn-legend-exit'),
+  btnPlay: $('btn-legend-play'), btnRewind: $('btn-legend-rewind'),
+  btnForward: $('btn-legend-forward'), btnInfo: $('btn-legend-info'),
+  legendPlayLabel: $('legend-play-label'), btnBarFeedback: $('btn-bar-feedback'),
+  badgeActiveAudio: $('badge-active-audio'), badgeActiveSubtitle: $('badge-active-subtitle'),
+  feedbackModal: $('feedback-modal'), feedbackCard: $('feedback-card'),
+  btnCloseFeedback: $('btn-close-feedback'), btnCancelFeedback: $('btn-cancel-feedback'),
+  feedbackForm: $('feedback-form'), bottomHoverDetector: $('bottom-hover-detector'),
+  serverButtonsContainer: $('server-buttons-container'), serverStatusPill: $('server-status-pill'),
+  movieTitle: $('movie-title'), movieSubtitle: $('movie-subtitle'),
+  posterImg: $('poster-img'), infoPoster: $('info-poster'),
+  infoTitle: $('info-title'), infoOriginal: $('info-original'),
+  infoDescription: $('info-description'), infoBadges: $('info-badges'), infoMeta: $('info-meta'),
+  loadOverlay: $('load-overlay'), loadMsg: $('load-msg'),
 };
 
 const ICONS = {
@@ -498,34 +394,29 @@ const ICONS = {
 };
 
 let toastTimeout;
-function showToast(message) {
+function showToast(m) {
   if (!els.toastNotify) return;
-  els.toastText.textContent = message;
-  els.toastNotify.classList.remove('opacity-0', '-translate-y-3');
-  els.toastNotify.classList.add('opacity-100', 'translate-y-0');
+  els.toastText.textContent = m;
+  els.toastNotify.classList.remove('opacity-0','-translate-y-3');
+  els.toastNotify.classList.add('opacity-100','translate-y-0');
   clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => {
-    els.toastNotify.classList.remove('opacity-100', 'translate-y-0');
-    els.toastNotify.classList.add('opacity-0', '-translate-y-3');
+    els.toastNotify.classList.remove('opacity-100','translate-y-0');
+    els.toastNotify.classList.add('opacity-0','-translate-y-3');
   }, 3000);
 }
-
 function triggerActionFlash(iconMarkup) {
   if (!els.actionFlash) return;
   els.actionFlashIcon.innerHTML = iconMarkup;
-  els.actionFlash.classList.remove('opacity-0', 'scale-75');
-  els.actionFlash.classList.add('opacity-100', 'scale-100');
+  els.actionFlash.classList.remove('opacity-0','scale-75');
+  els.actionFlash.classList.add('opacity-100','scale-100');
   clearTimeout(triggerActionFlash.timer);
   triggerActionFlash.timer = setTimeout(() => {
-    els.actionFlash.classList.remove('opacity-100', 'scale-100');
-    els.actionFlash.classList.add('opacity-0', 'scale-75');
+    els.actionFlash.classList.remove('opacity-100','scale-100');
+    els.actionFlash.classList.add('opacity-0','scale-75');
   }, 550);
 }
-
-function showLoad(msg) {
-  if (msg) els.loadMsg.innerHTML = msg;
-  els.loadOverlay.classList.add('on');
-}
+function showLoad(m) { if (m) els.loadMsg.innerHTML = m; els.loadOverlay.classList.add('on'); }
 function hideLoad() { els.loadOverlay.classList.remove('on'); }
 
 function detectType(url) {
@@ -534,34 +425,26 @@ function detectType(url) {
   if (/\.(mp4|webm|mkv|mov|ts)(\?|$)/i.test(url)) return 'mp4';
   return 'iframe';
 }
-
 function formatTime(s) {
   if (isNaN(s) || s < 0) s = 0;
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = Math.floor(s % 60);
-  const p = n => String(n).padStart(2, '0');
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), x = Math.floor(s%60);
+  const p = n => String(n).padStart(2,'0');
   return h > 0 ? `${p(h)}:${p(m)}:${p(x)}` : `${p(m)}:${p(x)}`;
 }
-
 function updateScrubberUI() {
   if (state.duration <= 0) return;
-  const pct = Math.min(Math.max((state.currentTime / state.duration) * 100, 0), 100);
+  const pct = Math.min(Math.max((state.currentTime/state.duration)*100, 0), 100);
   if (!state.isSeeking) els.slider.value = pct;
   els.progressFill.style.width = `${pct}%`;
   els.currentTimeText.textContent = formatTime(state.currentTime);
   els.durationTimeText.textContent = formatTime(state.duration);
 }
-
-function showHUD() {
-  if (state.isDirectMode) return;
-  state.isHudVisible = true;
-  els.hud.classList.remove('hud-hidden');
-  els.btnRevealHud.classList.add('opacity-0', 'pointer-events-none');
-}
+function showHUD() { if (state.isDirectMode) return; state.isHudVisible = true; els.hud.classList.remove('hud-hidden'); els.btnRevealHud.classList.add('opacity-0','pointer-events-none'); }
 function hideHUD() {
   if (state.isModalOpen || state.isFeedbackOpen || state.isOptionsDrawerOpen) return;
   state.isHudVisible = false;
   els.hud.classList.add('hud-hidden');
-  els.btnRevealHud.classList.remove('opacity-0', 'pointer-events-none');
+  els.btnRevealHud.classList.remove('opacity-0','pointer-events-none');
 }
 function resetIdleTimer() {
   if (!state.isHudVisible && !state.isDirectMode) showHUD();
@@ -571,22 +454,18 @@ function resetIdleTimer() {
   }, CONFIG.idleTimeout);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   DETECTOR: intenta reproducción nativa (HLS/MP4), sino iframe
-   ═══════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   DETECTOR: intenta HLS o MP4 nativo; si falla → iframe
+   ═══════════════════════════════════════════════════════════════════ */
 async function tryPlayAsNative(url) {
   return new Promise((resolve) => {
     const video = document.createElement('video');
     video.id = 'player-slot';
     video.className = 'w-full h-full absolute inset-0 border-0 aspect-mode-16-9 bg-black';
-    video.controls = false;
-    video.playsInline = true;
-    video.preload = 'metadata';
+    video.controls = false; video.playsInline = true; video.preload = 'metadata';
     video.crossOrigin = 'anonymous';
-
     const host = els.iframe.parentElement;
-    let hls = null;
-    let settled = false;
+    let hls = null, settled = false;
 
     const cleanup = (success) => {
       if (settled) return;
@@ -599,79 +478,58 @@ async function tryPlayAsNative(url) {
       }
       resolve(success);
     };
-
-    const timeout = setTimeout(() => {
-      console.warn('[Detector] Timeout esperando HLS/MP4');
-      cleanup(false);
-    }, 12000);
-
+    const timeout = setTimeout(() => { console.log('[Detector] ⏱️ Timeout'); cleanup(false); }, 12000);
     host.appendChild(video);
 
     const onReady = () => {
-      console.log('[Detector] ✓ Reproducción nativa OK');
+      console.log('[Detector] ✅ Nativo OK → CONTROL TOTAL');
       state.activePlayer = { type: 'native', el: video, hls };
       wireNativeVideo(video);
       cleanup(true);
     };
 
     if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported()) {
+      console.log('[Detector] Probando HLS (.m3u8)...');
       try {
         hls = new Hls({ maxBufferLength: 30, enableWorker: true });
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, onReady);
         hls.on(Hls.Events.ERROR, (e, data) => {
-          if (data.fatal) {
-            console.warn('[Detector] ✗ HLS fatal:', data.type, data.details);
-            cleanup(false);
-          }
+          if (data.fatal) { console.log('[Detector] ❌ HLS fatal:', data.type); cleanup(false); }
         });
-      } catch(e) {
-        cleanup(false);
-      }
+      } catch(e) { cleanup(false); }
     } else if (/\.(mp4|webm|mkv|mov|ts)(\?|$)/i.test(url)) {
+      console.log('[Detector] Probando MP4...');
       video.src = url;
       video.addEventListener('loadedmetadata', onReady, { once: true });
       video.addEventListener('error', () => cleanup(false), { once: true });
     } else {
+      console.log('[Detector] No es HLS/MP4, usando iframe');
       cleanup(false);
     }
   });
 }
-
 function destroyActivePlayer() {
   const ap = state.activePlayer;
   if (!ap) return;
   if (ap.hls) try { ap.hls.destroy(); } catch(e){}
-  if (ap.type === 'native') {
-    try { ap.el.pause(); ap.el.src = ''; ap.el.load(); ap.el.remove(); } catch(e){}
-  }
+  if (ap.type === 'native') { try { ap.el.pause(); ap.el.src = ''; ap.el.load(); ap.el.remove(); } catch(e){} }
   state.activePlayer = null;
 }
-
 function wireNativeVideo(video) {
   if (video._wired) return;
   video._wired = true;
   video.addEventListener('loadedmetadata', () => {
-    if (isFinite(video.duration) && video.duration > 0) {
-      state.duration = video.duration;
-      updateScrubberUI();
-    }
+    if (isFinite(video.duration) && video.duration > 0) { state.duration = video.duration; updateScrubberUI(); }
   });
   video.addEventListener('timeupdate', () => {
     if (state.isSeeking) return;
     state.currentTime = video.currentTime;
     updateScrubberUI();
   });
-  video.addEventListener('play', () => {
-    state.isPlaying = true;
-    if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Pausar';
-    hideLoad();
-  });
-  video.addEventListener('pause', () => {
-    state.isPlaying = false;
-    if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Reproducir';
-  });
+  video.addEventListener('play', () => { state.isPlaying = true; if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Pausar'; hideLoad(); });
+  video.addEventListener('pause', () => { state.isPlaying = false; if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Reproducir'; });
   video.addEventListener('playing', () => hideLoad());
   video.addEventListener('waiting', () => showLoad('Buffering…'));
 }
@@ -681,24 +539,19 @@ async function switchServer(serverId) {
   if (!target) return;
   CURRENT_SERVER_ID = serverId;
   destroyActivePlayer();
-
   document.querySelectorAll('#server-buttons-container .srv-btn-dyn').forEach(b => {
     b.classList.toggle('active', b.dataset.server === serverId);
   });
-
-  state.currentTime = 0;
-  state.duration = 0;
+  state.currentTime = 0; state.duration = 0;
   updateScrubberUI();
-
   const type = detectType(target.url);
-  showLoad('Cargando servidor…<small>Detectando tipo de reproducción</small>');
+  showLoad(`Cargando servidor…<small>Detectando: ${type.toUpperCase()}</small>`);
 
-  // 1) Intentar nativo (HLS/MP4) → control total
   if (type === 'hls' || type === 'mp4') {
     const ok = await tryPlayAsNative(target.url);
     if (ok) {
       hideLoad();
-      showToast('✓ Control total activado');
+      showToast('✅ Control total activado');
       triggerActionFlash(ICONS.play);
       setTimeout(() => {
         const ap = state.activePlayer;
@@ -711,28 +564,25 @@ async function switchServer(serverId) {
       resetIdleTimer();
       return;
     }
-    console.warn('[Detector] Fallback a iframe');
   }
-
-  // 2) Fallback iframe
+  // Fallback iframe (sin sandbox)
   els.iframe.src = target.url;
   state.activePlayer = { type: 'iframe', el: els.iframe };
   hideLoad();
-  showToast('Reproducción externa');
+  showToast('Reproducción externa (sin control)');
   triggerActionFlash(ICONS.play);
   state.isPlaying = true;
   if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Pausar';
   resetIdleTimer();
 }
 
-/* ─── Render: 2 botones genéricos ────────────────────────── */
 function renderServerButtons() {
   const container = els.serverButtonsContainer;
   if (!container) return;
   const ids = SERVERS_BY_LANG[CURRENT_LANG] || [];
   container.innerHTML = '';
   if (!ids.length) {
-    container.innerHTML = `<div class="w-full text-center text-xs text-neutral-500 py-3 italic">Sin servidores en este idioma</div>`;
+    container.innerHTML = `<div class="w-full text-center text-xs text-neutral-500 py-3 italic">Sin servidores</div>`;
     return;
   }
   ids.slice(0, 2).forEach((id, index) => {
@@ -747,7 +597,6 @@ function renderServerButtons() {
     container.appendChild(btn);
   });
 }
-
 function renderLangTabs() {
   const container = $('group-reproductor-bar');
   if (!container) return;
@@ -755,7 +604,7 @@ function renderLangTabs() {
   if (prev) prev.remove();
   const langs = Object.keys(SERVERS_BY_LANG);
   if (langs.length <= 1) return;
-  const META = { latino: '🇲🇽 LATINO', español: '🇪🇸 ESPAÑOL', castellano: '🇪🇸 CASTELLANO', subtitulado: '🇺🇸 SUBTITULADO' };
+  const META = { latino:'🇲🇽 LATINO', español:'🇪🇸 ESPAÑOL', castellano:'🇪🇸 CASTELLANO', subtitulado:'🇺🇸 SUBTITULADO' };
   const tabsRow = document.createElement('div');
   tabsRow.className = 'lang-tabs-row flex gap-2 mb-2';
   langs.forEach(lang => {
@@ -765,8 +614,7 @@ function renderLangTabs() {
     tab.onclick = () => {
       CURRENT_LANG = lang;
       const firstId = (SERVERS_BY_LANG[lang] || [])[0];
-      renderLangTabs();
-      renderServerButtons();
+      renderLangTabs(); renderServerButtons();
       if (firstId) switchServer(firstId);
       showToast(`Idioma: ${lang.toUpperCase()}`);
     };
@@ -774,13 +622,9 @@ function renderLangTabs() {
   });
   container.insertBefore(tabsRow, container.querySelector('#server-buttons-container'));
 }
-
 function hydrateMetadata(meta) {
   if (!meta) return;
-  if (meta.title) {
-    if (els.movieTitle) els.movieTitle.textContent = meta.title;
-    document.title = `${meta.title} - Smart TV Player`;
-  }
+  if (meta.title) { if (els.movieTitle) els.movieTitle.textContent = meta.title; document.title = `${meta.title} - Smart TV Player`; }
   const metaLine = [meta.originalTitle, meta.year, meta.genres, meta.voteAverage ? `★ ${meta.voteAverage.toFixed(1)}` : ''].filter(Boolean).join(' • ');
   if (els.movieSubtitle) els.movieSubtitle.textContent = metaLine;
   if (meta.poster) { els.posterImg.src = meta.poster; els.infoPoster.src = meta.poster; }
@@ -798,55 +642,33 @@ function hydrateMetadata(meta) {
   if (els.infoTitle) els.infoTitle.textContent = meta.title || '—';
   if (els.infoOriginal) els.infoOriginal.textContent = meta.originalTitle ? `Título Original: ${meta.originalTitle}` : '';
   if (els.infoDescription) els.infoDescription.textContent = meta.overview || '—';
-  if (els.infoBadges) {
-    els.infoBadges.innerHTML = meta.year ? `
-      <span class="px-2 py-0.5 text-xs font-semibold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">TMDB ${meta.voteAverage?.toFixed(1) || '—'}</span>
-      <span class="text-xs text-neutral-400">${meta.year}</span>
-      <span class="text-xs text-neutral-400">• ${meta.runtime || '—'} min</span>
-    ` : '';
-  }
-  if (els.infoMeta) {
-    els.infoMeta.innerHTML = meta.genres ? `
-      <div><strong class="text-neutral-200">Género:</strong> ${meta.genres}</div>
-      <div><strong class="text-neutral-200">Año:</strong> ${meta.year || '—'}</div>
-    ` : '';
-  }
+  if (els.infoBadges) els.infoBadges.innerHTML = meta.year ? `
+    <span class="px-2 py-0.5 text-xs font-semibold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">TMDB ${meta.voteAverage?.toFixed(1) || '—'}</span>
+    <span class="text-xs text-neutral-400">${meta.year}</span>
+    <span class="text-xs text-neutral-400">• ${meta.runtime || '—'} min</span>` : '';
+  if (els.infoMeta) els.infoMeta.innerHTML = meta.genres ? `
+    <div><strong class="text-neutral-200">Género:</strong> ${meta.genres}</div>
+    <div><strong class="text-neutral-200">Año:</strong> ${meta.year || '—'}</div>` : '';
 }
-
-/* ─── Cargar servidores desde API ─────────────────────── */
 async function loadServersFromAPI() {
   const params = new URLSearchParams(location.search);
   const tmdbId = params.get('id') || CONFIG.DEFAULT_TMDB_ID;
   const type = params.get('type') || CONFIG.DEFAULT_TYPE;
-
   if (els.serverStatusPill) els.serverStatusPill.textContent = 'Conectando…';
-  showLoad('Conectando con la API…<small>Primera carga: hasta 60 segundos (cold start)</small>');
-
+  showLoad('Conectando con la API…<small>Primera carga: hasta 60 segundos</small>');
   try {
-    const r = await fetch(`${CONFIG.API_URL}/api/servers?id=${tmdbId}&type=${type}`, {
-      signal: AbortSignal.timeout(90000)
-    });
+    const r = await fetch(`${CONFIG.API_URL}/api/servers?id=${tmdbId}&type=${type}`, { signal: AbortSignal.timeout(90000) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-
     if (data.meta) hydrateMetadata(data.meta);
-
     if (!data.servers || !Object.keys(data.servers).length) {
       if (els.serverStatusPill) els.serverStatusPill.textContent = 'Sin servidores';
-      hideLoad();
-      showToast('No se encontraron servidores');
-      return;
+      hideLoad(); showToast('No se encontraron servidores'); return;
     }
-
-    SERVERS = {};
-    SERVERS_BY_LANG = {};
+    SERVERS = {}; SERVERS_BY_LANG = {};
     let idx = 0;
-    const priority = ['latino', 'español', 'castellano', 'subtitulado'];
-    const langs = Object.keys(data.servers).sort((a, b) => {
-      return (priority.indexOf(a) === -1 ? 99 : priority.indexOf(a)) -
-             (priority.indexOf(b) === -1 ? 99 : priority.indexOf(b));
-    });
-
+    const priority = ['latino','español','castellano','subtitulado'];
+    const langs = Object.keys(data.servers).sort((a,b) => (priority.indexOf(a) === -1 ? 99 : priority.indexOf(a)) - (priority.indexOf(b) === -1 ? 99 : priority.indexOf(b)));
     langs.forEach(lang => {
       SERVERS_BY_LANG[lang] = [];
       Object.entries(data.servers[lang]).forEach(([name, url]) => {
@@ -855,56 +677,43 @@ async function loadServersFromAPI() {
         SERVERS_BY_LANG[lang].push(id);
       });
     });
-
-    CURRENT_LANG = SERVERS_BY_LANG.latino ? 'latino'
-                 : SERVERS_BY_LANG.español ? 'español'
-                 : SERVERS_BY_LANG.castellano ? 'castellano'
-                 : SERVERS_BY_LANG.subtitulado ? 'subtitulado'
-                 : Object.keys(SERVERS_BY_LANG)[0];
-
-    renderLangTabs();
-    renderServerButtons();
+    CURRENT_LANG = SERVERS_BY_LANG.latino ? 'latino' : SERVERS_BY_LANG.español ? 'español' : SERVERS_BY_LANG.castellano ? 'castellano' : SERVERS_BY_LANG.subtitulado ? 'subtitulado' : Object.keys(SERVERS_BY_LANG)[0];
+    renderLangTabs(); renderServerButtons();
     const total = Object.keys(SERVERS).length;
     if (els.serverStatusPill) els.serverStatusPill.textContent = `${total} servidores`;
-
     const firstId = SERVERS_BY_LANG[CURRENT_LANG][0];
-    if (firstId) {
-      await switchServer(firstId);
-    }
-
+    if (firstId) await switchServer(firstId);
   } catch (err) {
     console.error('[API]', err);
     if (els.serverStatusPill) els.serverStatusPill.textContent = 'Reintentando…';
-    showLoad('Error al conectar con la API<small>Reintentando en 30 segundos…</small>');
+    showLoad('Error al conectar<small>Reintentando en 30 segundos…</small>');
     setTimeout(loadServersFromAPI, 30000);
   }
 }
-
-/* ─── UI drawers/modals ────────────────────────────────── */
 function toggleOptionsDrawer(force) {
   const shouldOpen = typeof force === 'boolean' ? force : !state.isOptionsDrawerOpen;
   state.isOptionsDrawerOpen = shouldOpen;
   if (shouldOpen) {
     els.optionsPanel.classList.remove('options-drawer-collapsed');
     els.optionsPanel.classList.add('options-drawer-expanded');
-    els.toggleChevron.classList.add('rotate-180', 'text-brand-cyan');
+    els.toggleChevron.classList.add('rotate-180','text-brand-cyan');
     clearTimeout(state.idleTimer);
   } else {
     els.optionsPanel.classList.remove('options-drawer-expanded');
     els.optionsPanel.classList.add('options-drawer-collapsed');
-    els.toggleChevron.classList.remove('rotate-180', 'text-brand-cyan');
+    els.toggleChevron.classList.remove('rotate-180','text-brand-cyan');
     resetIdleTimer();
   }
 }
 function toggleInfoModal(open) {
   state.isModalOpen = typeof open === 'boolean' ? open : !state.isModalOpen;
   if (state.isModalOpen) {
-    els.infoModal.classList.remove('opacity-0', 'pointer-events-none');
+    els.infoModal.classList.remove('opacity-0','pointer-events-none');
     els.infoModalCard.classList.remove('scale-95');
     els.infoModalCard.classList.add('scale-100');
     clearTimeout(state.idleTimer);
   } else {
-    els.infoModal.classList.add('opacity-0', 'pointer-events-none');
+    els.infoModal.classList.add('opacity-0','pointer-events-none');
     els.infoModalCard.classList.add('scale-95');
     els.infoModalCard.classList.remove('scale-100');
     resetIdleTimer();
@@ -913,28 +722,26 @@ function toggleInfoModal(open) {
 function toggleFeedbackModal(open) {
   state.isFeedbackOpen = typeof open === 'boolean' ? open : !state.isFeedbackOpen;
   if (state.isFeedbackOpen) {
-    els.feedbackModal.classList.remove('opacity-0', 'pointer-events-none');
+    els.feedbackModal.classList.remove('opacity-0','pointer-events-none');
     els.feedbackCard.classList.remove('scale-95');
     els.feedbackCard.classList.add('scale-100');
   } else {
-    els.feedbackModal.classList.add('opacity-0', 'pointer-events-none');
+    els.feedbackModal.classList.add('opacity-0','pointer-events-none');
     els.feedbackCard.classList.add('scale-95');
     els.feedbackCard.classList.remove('scale-100');
   }
 }
-
 function applyAspectRatio(mode) {
   state.currentAspect = mode;
   const targets = [els.iframe, document.querySelector('#player-slot')].filter(Boolean);
   targets.forEach(el => {
-    el.classList.remove('aspect-mode-16-9', 'aspect-mode-stretch', 'aspect-mode-4-3');
+    el.classList.remove('aspect-mode-16-9','aspect-mode-stretch','aspect-mode-4-3');
     if (mode === 'stretch') el.classList.add('aspect-mode-stretch');
     else if (mode === '4-3') el.classList.add('aspect-mode-4-3');
     else el.classList.add('aspect-mode-16-9');
   });
   showToast(`Formato: ${mode.toUpperCase()}`);
 }
-
 function togglePlayPause() {
   const ap = state.activePlayer;
   if (ap && ap.type === 'native') {
@@ -979,8 +786,6 @@ function forward10() {
   triggerActionFlash(ICONS.forward);
   showHUD(); resetIdleTimer();
 }
-
-/* ─── Bindings ─────────────────────────────────────────── */
 document.querySelectorAll('#group-formato-pantalla button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#group-formato-pantalla button').forEach(b => b.classList.remove('tv-btn-active'));
@@ -988,19 +793,17 @@ document.querySelectorAll('#group-formato-pantalla button').forEach(btn => {
     applyAspectRatio(btn.dataset.aspect);
   });
 });
-
 document.querySelectorAll('#group-audio-options button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#group-audio-options button').forEach(b => b.classList.remove('tv-btn-active'));
     btn.classList.add('tv-btn-active');
     state.currentAudio = btn.dataset.audio;
-    const labels = { latino: '🇲🇽 Español Latino', castellano: '🇪🇸 Castellano', ingles: '🇺🇸 Inglés VOSE' };
+    const labels = { latino:'🇲🇽 Español Latino', castellano:'🇪🇸 Castellano', ingles:'🇺🇸 Inglés VOSE' };
     if (els.badgeActiveAudio) els.badgeActiveAudio.textContent = (labels[btn.dataset.audio] || btn.dataset.audio) + ' (Activo)';
     try { els.iframe.contentWindow.postMessage({ action: 'setAudio', audio: btn.dataset.audio }, '*'); } catch(e){}
     showToast('Audio: ' + (labels[btn.dataset.audio] || btn.dataset.audio));
   });
 });
-
 document.querySelectorAll('#group-subtitle-options button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#group-subtitle-options button').forEach(b => b.classList.remove('tv-btn-active'));
@@ -1011,12 +814,10 @@ document.querySelectorAll('#group-subtitle-options button').forEach(btn => {
     showToast(btn.dataset.sub === 'off' ? 'Subtítulos desactivados' : 'Subtítulos: ' + btn.dataset.sub);
   });
 });
-
 els.btnToggleOptions.addEventListener('click', e => { e.stopPropagation(); toggleOptionsDrawer(); });
 els.btnInfo.addEventListener('click', () => toggleInfoModal(true));
 els.posterThumb.addEventListener('click', () => toggleInfoModal(true));
 els.btnCloseModal.addEventListener('click', () => toggleInfoModal(false));
-els.btnModalCloseAction.addEventListener('click', () => toggleInfoModal(false));
 els.btnModalPlay.addEventListener('click', () => { toggleInfoModal(false); togglePlayPause(); });
 els.btnBarFeedback.addEventListener('click', () => toggleFeedbackModal(true));
 els.btnCloseFeedback.addEventListener('click', () => toggleFeedbackModal(false));
@@ -1025,32 +826,27 @@ els.feedbackForm.addEventListener('submit', e => {
   e.preventDefault(); toggleFeedbackModal(false);
   showToast('Reporte enviado'); triggerActionFlash(ICONS.check);
 });
-
 els.btnExit.addEventListener('click', () => {
   if (state.isFeedbackOpen) toggleFeedbackModal(false);
   else if (state.isOptionsDrawerOpen) toggleOptionsDrawer(false);
   else if (state.isModalOpen) toggleInfoModal(false);
   else hideHUD();
 });
-
 els.btnRevealHud.addEventListener('click', () => {
   state.isDirectMode = false;
   document.body.classList.remove('mode-direct');
   showHUD(); resetIdleTimer();
 });
-
 els.btnPlay.addEventListener('click', togglePlayPause);
 els.btnRewind.addEventListener('click', rewind10);
 els.btnForward.addEventListener('click', forward10);
-
 els.bottomHoverDetector.addEventListener('mouseenter', () => {
   if (!state.isDirectMode) { showHUD(); resetIdleTimer(); }
 });
-
 els.slider.addEventListener('pointerdown', () => { state.isSeeking = true; });
 els.slider.addEventListener('input', e => {
   const pct = parseFloat(e.target.value);
-  state.currentTime = Math.floor((pct / 100) * (state.duration || 0));
+  state.currentTime = Math.floor((pct/100)*(state.duration||0));
   els.progressFill.style.width = `${pct}%`;
   els.currentTimeText.textContent = formatTime(state.currentTime);
   resetIdleTimer();
@@ -1058,67 +854,41 @@ els.slider.addEventListener('input', e => {
 els.slider.addEventListener('change', e => {
   state.isSeeking = false;
   const pct = parseFloat(e.target.value);
-  state.currentTime = Math.floor((pct / 100) * (state.duration || 0));
+  state.currentTime = Math.floor((pct/100)*(state.duration||0));
   const ap = state.activePlayer;
-  if (ap && ap.type === 'native') {
-    ap.el.currentTime = state.currentTime;
-  } else {
-    try { els.iframe.contentWindow.postMessage({ action: 'seek', position: state.currentTime }, '*'); } catch(e){}
-  }
+  if (ap && ap.type === 'native') ap.el.currentTime = state.currentTime;
+  else { try { els.iframe.contentWindow.postMessage({ action: 'seek', position: state.currentTime }, '*'); } catch(e){} }
   resetIdleTimer();
 });
 els.slider.addEventListener('pointerup', () => { state.isSeeking = false; });
-
 window.addEventListener('mousemove', resetIdleTimer);
 window.addEventListener('touchstart', resetIdleTimer);
-
-/* Escuchar mensajes del iframe */
 window.addEventListener('message', event => {
   const data = event.data;
   if (!data || typeof data !== 'object') return;
   let evt = data.event || data.name || data.action || data.type;
   if (!evt) return;
   switch (evt) {
-    case 'position':
-    case 'timeupdate':
+    case 'position': case 'timeupdate':
       if (typeof data.position === 'number') state.currentTime = data.position;
       else if (typeof data.currentTime === 'number') state.currentTime = data.currentTime;
       if (typeof data.duration === 'number' && data.duration > 0) state.duration = data.duration;
       updateScrubberUI(); break;
-    case 'play':
-      state.isPlaying = true;
-      if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Pausar';
-      break;
-    case 'pause':
-      state.isPlaying = false;
-      if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Reproducir';
-      break;
-    case 'ready':
-      hideLoad(); break;
+    case 'play': state.isPlaying = true; if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Pausar'; break;
+    case 'pause': state.isPlaying = false; if (els.legendPlayLabel) els.legendPlayLabel.textContent = 'Reproducir'; break;
+    case 'ready': hideLoad(); break;
   }
 });
-
 window.addEventListener('keydown', e => {
   if (state.isFeedbackOpen && e.key === 'Escape') { toggleFeedbackModal(false); return; }
   switch (e.key) {
-    case ' ':
-    case 'Enter':
+    case ' ': case 'Enter':
       if (state.isModalOpen) { e.preventDefault(); toggleInfoModal(false); return; }
       e.preventDefault(); togglePlayPause(); break;
-    case 'ArrowLeft':
-      if (state.isModalOpen) return;
-      e.preventDefault(); rewind10(); break;
-    case 'ArrowRight':
-      if (state.isModalOpen) return;
-      e.preventDefault(); forward10(); break;
-    case 'ArrowUp':
-      e.preventDefault();
-      if (state.isOptionsDrawerOpen) toggleOptionsDrawer(false);
-      toggleInfoModal(!state.isModalOpen); break;
-    case 'ArrowDown':
-      e.preventDefault();
-      if (state.isModalOpen) toggleInfoModal(false);
-      toggleOptionsDrawer(); break;
+    case 'ArrowLeft': if (state.isModalOpen) return; e.preventDefault(); rewind10(); break;
+    case 'ArrowRight': if (state.isModalOpen) return; e.preventDefault(); forward10(); break;
+    case 'ArrowUp': e.preventDefault(); if (state.isOptionsDrawerOpen) toggleOptionsDrawer(false); toggleInfoModal(!state.isModalOpen); break;
+    case 'ArrowDown': e.preventDefault(); if (state.isModalOpen) toggleInfoModal(false); toggleOptionsDrawer(); break;
     case 'f': case 'F':
       e.preventDefault();
       if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
@@ -1132,7 +902,6 @@ window.addEventListener('keydown', e => {
       else hideHUD(); break;
   }
 });
-
 updateScrubberUI();
 resetIdleTimer();
 loadServersFromAPI();
