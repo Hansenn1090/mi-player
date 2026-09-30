@@ -1,7 +1,6 @@
 {
   "name": "mi-player-api",
   "version": "1.0.0",
-  "description": "API para mi-player con scraper y extractor",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
