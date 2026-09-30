@@ -1,111 +1,212 @@
+// ══════════════════════════════════════════════════════════════════════════
+// puppeteer-extractor.js
+// Extrae el stream limpio (m3u8/mp4) de un embed usando Puppeteer
+// Intercepta requests de red y captura la URL del video real
+// ══════════════════════════════════════════════════════════════════════════
+
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+// Activar stealth para evitar detección de bots
 puppeteer.use(StealthPlugin());
 
-let browserInstance = null;
-let browserIdleTimer = null;
-
-async function getBrowser() {
-  if (browserInstance) {
-    clearTimeout(browserIdleTimer);
-    return browserInstance;
-  }
-  browserInstance = await puppeteer.launch({
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-blink-features=AutomationControlled',
-    ],
-  });
-  return browserInstance;
-}
-
-// Cierra el browser si no se usa en 5 min (para no consumir RAM)
-function scheduleBrowserClose() {
-  clearTimeout(browserIdleTimer);
-  browserIdleTimer = setTimeout(async () => {
-    if (browserInstance) {
-      try { await browserInstance.close(); } catch(e){}
-      browserInstance = null;
-    }
-  }, 5 * 60 * 1000);
-}
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 /**
- * Extrae el .m3u8 real de un embed.
- * Abre la URL en un navegador headless, espera que el player cargue,
- * intercepta el request del .m3u8 y lo devuelve.
+ * Extrae el stream real de un embed
+ * @param {string} embedUrl - URL del embed (ej: https://voe.sx/e/abc123)
+ * @param {object} opts - Opciones opcionales
+ * @returns {Promise<{stream: string, kind: string, referer: string}|null>}
  */
-async function extractM3u8FromEmbed(embedUrl, timeoutMs = 25000) {
-  console.log(`[Puppeteer] Extrayendo: ${embedUrl}`);
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+async function extractM3u8(embedUrl, opts = {}) {
+  if (!embedUrl || !/^https?:\/\//i.test(embedUrl)) {
+    console.warn('[extract] URL inválida:', embedUrl);
+    return null;
+  }
 
-  // User agent real
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-  await page.setViewport({ width: 1280, height: 720 });
-
-  let m3u8Url = null;
-  let resolveExtraction;
-  const extractionPromise = new Promise(r => { resolveExtraction = r; });
-
-  // 🎯 INTERCEPTAR requests para capturar el .m3u8
-  await page.setRequestInterception(true);
-  page.on('request', req => {
-    const url = req.url();
-    if (/\.m3u8(\?|$)/i.test(url) && !m3u8Url) {
-      console.log(`[Puppeteer] 🎯 .m3u8 capturado: ${url.substring(0, 100)}`);
-      m3u8Url = url;
-      resolveExtraction(url);
-    }
-    // Bloquear publicidad mientras carga
-    if (/doubleclick|googlesyndication|popads|popcash|propellerads|adsterra|exoclick|servetraff|taboola|outbrain|mgid|revcontent|clickadu|vidoomy|onclickads/i.test(url)) {
-      req.abort();
-      return;
-    }
-    // Bloquear imágenes y fuentes para ir más rápido
-    if (req.resourceType() === 'image' || req.resourceType() === 'font') {
-      req.abort();
-      return;
-    }
-    req.continue();
-  });
+  const timeout = opts.timeout || 25000;
+  let browser = null;
+  let captured = null;
 
   try {
-    // Abrir el embed
-    await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    console.log('[extract] Iniciando Puppeteer para:', embedUrl);
 
-    // Esperar a que aparezca el .m3u8 (con timeout)
-    await Promise.race([
-      extractionPromise,
-      new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout extrayendo m3u8')), timeoutMs)),
-    ]);
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--disable-default-apps',
+        '--mute-audio',
+        '--no-default-browser-check',
+        '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+        '--window-size=1280,720',
+      ],
+      timeout: 20000,
+    });
 
-    // Esperar 1 segundo extra por si hay redirects
-    if (!m3u8Url) {
-      await new Promise(r => setTimeout(r, 2000));
+    const page = await browser.newPage();
+
+    // Ajustes para reducir consumo y evitar detección
+    await page.setUserAgent(UA);
+    await page.setViewport({ width: 1280, height: 720 });
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    });
+
+    // Bloquear recursos innecesarios para acelerar y reducir RAM
+    await page.setRequestInterception(true);
+
+    page.on('request', (req) => {
+      const url = req.url();
+      const type = req.resourceType();
+
+      // ─── Capturar m3u8/mp4 ────────────────────────────────────────
+      if (!captured) {
+        if (/\.m3u8(\?|$)/i.test(url) || /master\.txt(\?|$)/i.test(url)) {
+          captured = { stream: url, kind: 'hls', referer: embedUrl };
+          console.log('[extract] ✅ HLS capturado:', url.slice(0, 100));
+        } else if (/\.mp4(\?|$)/i.test(url)) {
+          captured = { stream: url, kind: 'mp4', referer: embedUrl };
+          console.log('[extract] ✅ MP4 capturado:', url.slice(0, 100));
+        }
+      }
+
+      // ─── Bloquear recursos pesados (imágenes, fuentes, CSS) ──────
+      if (['image', 'font', 'media', 'stylesheet'].includes(type)) {
+        req.abort();
+        return;
+      }
+
+      // ─── Bloquear dominios de tracking/ad comúnmente pesados ─────
+      if (/doubleclick|googlesyndication|google-analytics|googletagmanager|adservice|adnxs|amazon-adsystem|outbrain|taboola|popads|propellerads|exoclick|juicyads|trafficjunky/i.test(url)) {
+        req.abort();
+        return;
+      }
+
+      req.continue();
+    });
+
+    // También interceptar respuestas por Content-Type (por si la URL no tiene extensión)
+    page.on('response', async (res) => {
+      if (captured) return;
+      try {
+        const ct = (res.headers()['content-type'] || '').toLowerCase();
+        const url = res.url();
+        if (/application\/x-mpegurl|application\/vnd\.apple\.mpegurl/i.test(ct)) {
+          captured = { stream: url, kind: 'hls', referer: embedUrl };
+          console.log('[extract] ✅ HLS por Content-Type:', url.slice(0, 100));
+        } else if (/video\/mp4/i.test(ct) && !captured) {
+          captured = { stream: url, kind: 'mp4', referer: embedUrl };
+          console.log('[extract] ✅ MP4 por Content-Type:', url.slice(0, 100));
+        }
+      } catch (_) {}
+    });
+
+    // ─── Navegar al embed ─────────────────────────────────────────────
+    console.log('[extract] Navegando a:', embedUrl);
+    try {
+      await page.goto(embedUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: timeout,
+      });
+    } catch (navErr) {
+      console.warn('[extract] Error de navegación (continuando):', navErr.message);
     }
 
-    return m3u8Url;
-  } catch (err) {
-    console.warn(`[Puppeteer] Error: ${err.message}`);
-    // Intento fallback: buscar el .m3u8 en el HTML final
-    try {
-      const html = await page.content();
-      const match = html.match(/["'](https?:\/\/[^"']*\.m3u8[^"']*)["']/i);
-      if (match) {
-        console.log(`[Puppeteer] ✅ .m3u8 encontrado en HTML: ${match[1].substring(0, 80)}`);
-        return match[1];
+    // ─── Esperar a que aparezca el stream ────────────────────────────
+    // Ir chequeando cada 500ms hasta 12 seg (o hasta capturar)
+    const waitStart = Date.now();
+    while (!captured && Date.now() - waitStart < 12000) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    // ─── Si no capturamos nada, buscar en el DOM ─────────────────────
+    if (!captured) {
+      console.log('[extract] Buscando en el DOM...');
+      try {
+        const domStream = await page.evaluate(() => {
+          // 1. <video src>
+          const vids = document.querySelectorAll('video');
+          for (const v of vids) {
+            if (v.src && /\.(m3u8|mp4)/i.test(v.src)) return v.src;
+            if (v.currentSrc && /\.(m3u8|mp4)/i.test(v.currentSrc)) return v.currentSrc;
+          }
+          // 2. <source src>
+          const sources = document.querySelectorAll('source');
+          for (const s of sources) {
+            if (s.src && /\.(m3u8|mp4)/i.test(s.src)) return s.src;
+          }
+          // 3. Variables globales comunes
+          const globals = ['sources', 'videoSources', 'playlist', 'hlsUrl', 'm3u8', 'file'];
+          for (const g of globals) {
+            const val = window[g];
+            if (typeof val === 'string' && /\.(m3u8|mp4)/i.test(val)) return val;
+            if (Array.isArray(val) && val[0]) {
+              const f = val[0].file || val[0].src || val[0].url || val[0];
+              if (typeof f === 'string' && /\.(m3u8|mp4)/i.test(f)) return f;
+            }
+          }
+          // 4. Regex en el HTML
+          const html = document.documentElement.innerHTML;
+          const m = html.match(/https?:\/\/[^\s"'<>\\]+\.(?:m3u8|mp4)[^\s"'<>\\]*/i);
+          if (m) return m[0];
+          return null;
+        });
+
+        if (domStream) {
+          const kind = /\.m3u8/i.test(domStream) ? 'hls' : 'mp4';
+          captured = { stream: domStream, kind, referer: embedUrl };
+          console.log('[extract] ✅ Capturado desde DOM:', domStream.slice(0, 100));
+        }
+      } catch (e) {
+        console.warn('[extract] Error buscando en DOM:', e.message);
       }
-    } catch(e) {}
+    }
+
+    // ─── Último intento: esperar 3 seg más por si tarda ──────────────
+    if (!captured) {
+      console.log('[extract] Esperando 3 seg más...');
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    if (captured) {
+      console.log('[extract] 🎬 Stream extraído:', captured.kind, '->', captured.stream.slice(0, 100));
+      return captured;
+    }
+
+    console.log('[extract] ❌ No se pudo extraer stream de:', embedUrl);
     return null;
+
+  } catch (err) {
+    console.error('[extract] Error general:', err.message);
+    return null;
+
   } finally {
-    try { await page.close(); } catch(e){}
-    scheduleBrowserClose();
+    if (browser) {
+      try { await browser.close(); } catch (_) {}
+    }
   }
 }
 
-module.exports = { extractM3u8FromEmbed };
+// ─── Exportar ─────────────────────────────────────────────────────────────
+// Se exportan varios nombres por compatibilidad con el server.js
+module.exports = {
+  extractM3u8,
+  extractStream: extractM3u8,
+  extract: extractM3u8,
+  default: extractM3u8,
+};
+
+console.log('[extract] Módulo cargado — funciones: extractM3u8, extractStream, extract');
