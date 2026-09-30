@@ -1,6 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════════
-// mi-player — API + Player
-// CommonJS (require) — NO usar import/export
+// mi-player — API + Player (CommonJS)
 // ══════════════════════════════════════════════════════════════════════════
 
 require('dotenv').config();
@@ -10,7 +9,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-// ── Imports internos ──────────────────────────────────────────────────────
+// ── Imports internos con fallback ─────────────────────────────────────────
 let scrapeAll, getMediaInfo, cache;
 
 try {
@@ -29,7 +28,6 @@ try {
 
 try {
   cache = require('./core/cache');
-  // Asegurar que cache tenga get/set
   if (typeof cache.get !== 'function') cache.get = () => null;
   if (typeof cache.set !== 'function') cache.set = () => {};
 } catch (e) {
@@ -37,7 +35,7 @@ try {
   cache = { get: () => null, set: () => {} };
 }
 
-// Extractor de Puppeteer — requerido en top level, no dentro del handler
+// Extractor de Puppeteer
 let extractorModule = null;
 try {
   extractorModule = require('./core/puppeteer-extractor');
@@ -46,19 +44,14 @@ try {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// App
-// ══════════════════════════════════════════════════════════════════════════
 const app = express();
-
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
-// Logging básico
 app.use((req, res, next) => {
   const t0 = Date.now();
   res.on('finish', () => {
-    const ms = Date.now() - t0;
-    console.log(`[${req.method}] ${req.originalUrl} → ${res.statusCode} (${ms}ms)`);
+    console.log(`[${req.method}] ${req.originalUrl} → ${res.statusCode} (${Date.now() - t0}ms)`);
   });
   next();
 });
@@ -78,16 +71,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// 2. /api/servers — Scraper + TMDB
+// 2. /api/servers
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/servers', async (req, res) => {
   const { id, type = 'movie', season = '', episode = '' } = req.query;
+  if (!id) return res.status(400).json({ error: 'Falta ?id=<tmdbId>' });
 
-  if (!id) {
-    return res.status(400).json({ error: 'Falta ?id=<tmdbId>' });
-  }
-
-  // Cache
   let cached = null;
   try { cached = cache.get(id, type, season, episode); } catch (_) {}
 
@@ -98,34 +87,23 @@ app.get('/api/servers', async (req, res) => {
 
   try {
     console.log(`[api/servers] ${type}/${id} → scraping...`);
-
     const info = await getMediaInfo(id, type);
     const { servers, sources } = await scrapeAll(info, type);
 
     if (!servers || !Object.keys(servers).length) {
       if (cached) return res.json({ ...cached, source: 'snapshot' });
-      return res.json({
-        servers: {},
-        meta: info || {},
-        sources: sources || [],
-        source: 'empty',
-      });
+      return res.json({ servers: {}, meta: info || {}, sources: sources || [], source: 'empty' });
     }
 
     const payload = {
       servers,
       meta: {
-        tmdbId: id,
-        type,
-        title:       info.title       || '',
-        year:        info.year        || '',
-        poster:      info.poster      || '',
-        backdrop:    info.backdrop    || '',
-        overview:    info.overview    || '',
-        runtime:     info.runtime     || 0,
-        genres:      info.genres      || [],
-        voteAverage: info.voteAverage || 0,
-        scrapedAt:   Date.now(),
+        tmdbId: id, type,
+        title: info.title || '', year: info.year || '',
+        poster: info.poster || '', backdrop: info.backdrop || '',
+        overview: info.overview || '', runtime: info.runtime || 0,
+        genres: info.genres || [], voteAverage: info.voteAverage || 0,
+        scrapedAt: Date.now(),
       },
       sources,
     };
@@ -134,7 +112,7 @@ app.get('/api/servers', async (req, res) => {
 
     console.log('[api/servers] OK:');
     Object.keys(servers).forEach(lang => {
-      console.log(`  ${lang}: ${Object.keys(servers[lang]).length} servidores`);
+      console.log(`  ${lang}: ${Object.keys(servers[lang]).length}`);
     });
 
     res.json({ ...payload, source: 'fresh' });
@@ -146,22 +124,20 @@ app.get('/api/servers', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// 3. /api/extract — Puppeteer extractor
+// 3. /api/extract — Acepta múltiples nombres de export
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/extract', async (req, res) => {
   const url = req.query.url;
-
-  if (!url) {
-    return res.status(400).json({ error: 'Falta ?url=<embedUrl>', kind: 'iframe' });
-  }
+  if (!url) return res.status(400).json({ error: 'Falta ?url=', kind: 'iframe' });
 
   if (!extractorModule) {
     return res.json({ error: 'Extractor no cargado', kind: 'iframe' });
   }
 
-  // Detectar el nombre de la función exportada
+  // Probar TODOS los nombres posibles de export
   const extractFn =
     (typeof extractorModule === 'function' ? extractorModule : null) ||
+    extractorModule.extractM3u8FromEmbed ||   // ← TU NOMBRE
     extractorModule.extractM3u8 ||
     extractorModule.extractStream ||
     extractorModule.extract ||
@@ -169,7 +145,7 @@ app.get('/api/extract', async (req, res) => {
     extractorModule.default;
 
   if (typeof extractFn !== 'function') {
-    console.warn('[api/extract] Función no encontrada en puppeteer-extractor.js');
+    console.warn('[api/extract] Función no encontrada.');
     console.warn('[api/extract] Exports disponibles:', Object.keys(extractorModule));
     return res.json({ error: 'Extractor no disponible', kind: 'iframe' });
   }
@@ -185,8 +161,8 @@ app.get('/api/extract', async (req, res) => {
 
     console.log('[api/extract] OK:', result.kind, result.stream.slice(0, 80) + '...');
     res.json({
-      stream:  result.stream,
-      kind:    result.kind || 'hls',
+      stream: result.stream,
+      kind: result.kind || 'hls',
       referer: result.referer || url,
     });
   } catch (e) {
@@ -196,12 +172,11 @@ app.get('/api/extract', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// 4. /api/tmdb — Proxy opcional para TMDB (así la key no sale al navegador)
+// 4. /api/tmdb — Proxy opcional
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/tmdb', async (req, res) => {
   const { id, type = 'movie', lang = 'es-ES' } = req.query;
   const key = process.env.TMDB_API_KEY;
-
   if (!id) return res.status(400).json({ error: 'Falta ?id=' });
   if (!key) return res.status(500).json({ error: 'TMDB_API_KEY no configurada' });
 
@@ -217,14 +192,13 @@ app.get('/api/tmdb', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// 5. SERVIR EL PLAYER (múltiples ubicaciones posibles)
+// 5. Servir el player
 // ══════════════════════════════════════════════════════════════════════════
 function findPlayerHtml() {
   const candidates = [
-    path.join(__dirname, '..', 'player.html'),   // /player.html (raíz del repo)
-    path.join(__dirname, 'player.html'),          // /api/player.html
-    path.join(process.cwd(), 'player.html'),      // cwd
-    path.join(process.cwd(), '..', 'player.html'),
+    path.join(__dirname, '..', 'player.html'),
+    path.join(__dirname, 'player.html'),
+    path.join(process.cwd(), 'player.html'),
   ];
   for (const p of candidates) {
     try { if (fs.existsSync(p)) return p; } catch (_) {}
@@ -244,40 +218,33 @@ app.get('/player.html', (req, res) => {
   res.sendFile(p);
 });
 
-// Servir estáticos (CSS, JS, imágenes)
 app.use(express.static(path.join(__dirname, '..')));
 app.use(express.static(path.join(__dirname)));
 
-// ══════════════════════════════════════════════════════════════════════════
-// 6. 404 Catch-all
-// ══════════════════════════════════════════════════════════════════════════
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found', path: req.originalUrl });
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// 7. ARRANQUE
+// 6. Arranque
 // ══════════════════════════════════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
   console.log('║  ✅ mi-player listo                                        ║');
   console.log('╠════════════════════════════════════════════════════════════╣');
-  console.log(`║  Player:      http://localhost:${PORT}/                     ║`);
-  console.log(`║  Health:      http://localhost:${PORT}/api/health           ║`);
-  console.log(`║  Servers:     http://localhost:${PORT}/api/servers?id=X     ║`);
-  console.log(`║  Extract:     http://localhost:${PORT}/api/extract?url=X    ║`);
+  console.log(`║  Player:     http://localhost:${PORT}/                      ║`);
+  console.log(`║  Health:     http://localhost:${PORT}/api/health            ║`);
   console.log('╠════════════════════════════════════════════════════════════╣');
-  console.log(`║  TMDB_KEY:    ${process.env.TMDB_API_KEY ? '✅ configurada' : '❌ FALTA'}`);
-  console.log(`║  Extractor:   ${extractorModule ? '✅ cargado' : '❌ no disponible'}`);
-  console.log(`║  Node:        ${process.version}`);
+  console.log(`║  TMDB_KEY:   ${process.env.TMDB_API_KEY ? '✅ configurada' : '❌ FALTA'}`);
+  console.log(`║  Extractor:  ${extractorModule ? '✅ cargado' : '❌ no disponible'}`);
+  console.log(`║  Node:       ${process.version}`);
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 });
 
-// Cierre limpio
 process.on('SIGTERM', () => {
-  console.log('[server] SIGTERM recibido, cerrando...');
-  server.close(() => process.exit(0));
+  console.log('[server] Cerrando...');
+  process.exit(0);
 });
