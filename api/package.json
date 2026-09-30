@@ -1,21 +1,19 @@
 {
   "name": "mi-player-api",
   "version": "1.0.0",
-  "type": "module",
+  "description": "API para mi-player con scraper y extractor",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "axios": "^1.7.7",
-    "cheerio": "^1.0.0",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "puppeteer-core": "^21.11.0",
-    "@sparticuz/chromium": "^119.0.0",
-    "dotenv": "^16.4.5"
-  },
-  "engines": {
-    "node": ">=20.11.0"
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "puppeteer": "^22.15.0"
   }
 }
