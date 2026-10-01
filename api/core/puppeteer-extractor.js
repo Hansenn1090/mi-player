@@ -1,9 +1,9 @@
 // ══════════════════════════════════════════════════════════════════════════
-// puppeteer-extractor.js — v6
-//   • Browser compartido (no lanza Chrome por cada request)
-//   • Cola de extracción (1 a la vez, evita OOM)
-//   • Auto-reconnect si el browser crashea
-//   • Filtro de ads
+// puppeteer-extractor.js — v7
+//   • Removido tik.1x2.space de ads (es el CDN real de xpass)
+//   • Preferencia por master.m3u8 sobre index-*.m3u8
+//   • Sin --single-process (crashea en Render Free)
+//   • Browser compartido + cola
 // ══════════════════════════════════════════════════════════════════════════
 
 const puppeteer = require('puppeteer-extra');
@@ -13,10 +13,10 @@ puppeteer.use(StealthPlugin());
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // ══════════════════════════════════════════════════════════════════════════
-// FILTRO DE ADS
+// FILTRO DE ADS — solo trackers y ads reales
+// ⚠️ NO incluir tik.1x2.space — es el CDN de contenido de xpass
 // ══════════════════════════════════════════════════════════════════════════
 const AD_CDN_PATTERNS = [
-  /tik\.1x2\.space/i,
   /adtng/i,
   /exoclick/i,
   /juicyads/i,
@@ -31,6 +31,9 @@ const AD_CDN_PATTERNS = [
   /mamshirt/i,
   /tagivi/i,
   /createlouisville/i,
+  /doubleclick/i,
+  /googlesyndication/i,
+  /google-analytics/i,
 ];
 
 function isAdUrl(url) {
@@ -42,19 +45,16 @@ function isAdUrl(url) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// BROWSER COMPARTIDO — se lanza UNA vez y se reutiliza
+// BROWSER COMPARTIDO
 // ══════════════════════════════════════════════════════════════════════════
 let _browser = null;
 let _browserLaunching = null;
 
 async function getBrowser() {
-  // Si ya existe y está conectado, devolverlo
   if (_browser && _browser.isConnected()) return _browser;
-
-  // Si está en proceso de lanzamiento, esperar
   if (_browserLaunching) return _browserLaunching;
 
-  console.log('[extract] 🚀 Lanzando Chromium (una sola vez)...');
+  console.log('[extract] 🚀 Lanzando Chromium...');
 
   _browserLaunching = puppeteer.launch({
     headless: 'new',
@@ -63,7 +63,7 @@ async function getBrowser() {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--single-process',
+      // ⚠️ SIN --single-process (crashea en Render Free)
       '--no-zygote',
       '--disable-gpu',
       '--disable-software-rasterizer',
@@ -83,12 +83,10 @@ async function getBrowser() {
   try {
     _browser = await _browserLaunching;
     _browserLaunching = null;
+    console.log('[extract] ✅ Chromium listo');
 
-    console.log('[extract] ✅ Chromium listo (se reutilizará)');
-
-    // Si el browser se desconecta, resetear para relanzar en el siguiente request
     _browser.on('disconnected', () => {
-      console.log('[extract] ⚠️ Chromium desconectado — se relanzará en el próximo request');
+      console.log('[extract] ⚠️ Chromium desconectado — se relanzará');
       _browser = null;
     });
 
@@ -101,30 +99,28 @@ async function getBrowser() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// COLA DE EXTRACCIÓN — 1 extracción a la vez
+// COLA
 // ══════════════════════════════════════════════════════════════════════════
 let _extractionQueue = Promise.resolve();
 
 async function extractM3u8FromEmbed(embedUrl, opts = {}) {
-  // Encolar la extracción para que no corran en paralelo
   const result = _extractionQueue.then(() => _doExtract(embedUrl, opts).catch(e => {
-    console.error('[extract] Error en _doExtract:', e.message);
+    console.error('[extract] Error:', e.message);
     return null;
   }));
-  // La cola avanza incluso si falla
   _extractionQueue = result.then(() => {}).catch(() => {});
   return result;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// EXTRACCIÓN REAL
+// EXTRACCIÓN
 // ══════════════════════════════════════════════════════════════════════════
 async function _doExtract(embedUrl, opts = {}) {
   if (!embedUrl || !/^https?:\/\//i.test(embedUrl)) return null;
 
   const timeout = opts.timeout || 35000;
   let page = null;
-  const captured = [];
+  const captured = [];  // Ahora guarda { stream, kind, priority }
 
   try {
     console.log('[extract] Iniciando para:', embedUrl);
@@ -141,23 +137,36 @@ async function _doExtract(embedUrl, opts = {}) {
     page.on('request', (req) => {
       const url = req.url();
 
-      // Bloquear ads
+      // Bloquear solo ads/trackers reales
       if (isAdUrl(url)) {
         console.log('[extract] 🚫 Ad bloqueado:', url.slice(0, 80));
         req.abort();
         return;
       }
 
-      // Capturar m3u8 limpio
+      // Capturar HLS con prioridad
       if (/\.m3u8(\?|$)/i.test(url) || /master\.txt(\?|$)/i.test(url)) {
-        console.log('[extract] ✅ HLS limpio:', url.slice(0, 120));
-        captured.push({ stream: url, kind: 'hls', referer: embedUrl });
+        // Prioridad 1: master.m3u8 (contenido principal)
+        if (/\/master\.m3u8/i.test(url) || /master\.txt/i.test(url)) {
+          console.log('[extract] ✅ HLS master:', url.slice(0, 100));
+          captured.push({ stream: url, kind: 'hls', referer: embedUrl, priority: 1 });
+        }
+        // Prioridad 3: index-*.m3u8 (probablemente ad)
+        else if (/\/index-[^\/]*\.m3u8/i.test(url)) {
+          console.log('[extract] ⚠️ HLS index (posible ad):', url.slice(0, 80));
+          captured.push({ stream: url, kind: 'hls', referer: embedUrl, priority: 3 });
+        }
+        // Prioridad 2: cualquier otro m3u8
+        else {
+          console.log('[extract] ✅ HLS:', url.slice(0, 100));
+          captured.push({ stream: url, kind: 'hls', referer: embedUrl, priority: 2 });
+        }
       }
 
-      // Capturar mp4 limpio
+      // Capturar mp4
       if (/\.mp4(\?|$)/i.test(url) && !/\.ts(\?|$)/i.test(url)) {
-        console.log('[extract] ✅ MP4 limpio:', url.slice(0, 120));
-        captured.push({ stream: url, kind: 'mp4', referer: embedUrl });
+        console.log('[extract] ✅ MP4:', url.slice(0, 100));
+        captured.push({ stream: url, kind: 'mp4', referer: embedUrl, priority: 2 });
       }
 
       req.continue();
@@ -174,14 +183,17 @@ async function _doExtract(embedUrl, opts = {}) {
           const text = await res.text();
           const m3u8Match = text.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
           if (m3u8Match && !isAdUrl(m3u8Match[0])) {
-            console.log('[extract] ✅ HLS en JSON:', m3u8Match[0].slice(0, 120));
-            captured.push({ stream: m3u8Match[0], kind: 'hls', referer: embedUrl });
+            const u = m3u8Match[0];
+            const priority = /\/master\.m3u8/i.test(u) ? 1 : (/\/index-/.test(u) ? 3 : 2);
+            console.log('[extract] ✅ HLS en JSON (p' + priority + '):', u.slice(0, 100));
+            captured.push({ stream: u, kind: 'hls', referer: embedUrl, priority });
           }
         }
 
         if (/application\/x-mpegurl|application\/vnd\.apple\.mpegurl/i.test(ct)) {
           if (!isAdUrl(url)) {
-            captured.push({ stream: url, kind: 'hls', referer: embedUrl });
+            const priority = /\/master\.m3u8/i.test(url) ? 1 : 2;
+            captured.push({ stream: url, kind: 'hls', referer: embedUrl, priority });
           }
         }
       } catch (_) {}
@@ -195,7 +207,7 @@ async function _doExtract(embedUrl, opts = {}) {
 
     await new Promise(r => setTimeout(r, 2000));
 
-    // Auto-click en play
+    // Auto-click play
     if (captured.length === 0) {
       console.log('[extract] Auto-click...');
       const sels = ['button.play-button', '.play-button', '.vjs-big-play-button',
@@ -213,51 +225,32 @@ async function _doExtract(embedUrl, opts = {}) {
       }
     }
 
-    // Esperar a que llegue el m3u8 limpio
+    // Esperar un poco más para capturar el master después del ad
     const start = Date.now();
-    while (captured.length === 0 && Date.now() - start < 15000) {
+    while (Date.now() - start < 18000) {
+      // Si ya tenemos un master (p1) → listo
+      if (captured.some(c => c.priority === 1)) break;
+      // Si tenemos algún m3u8 sin ad, esperar un poco más
+      if (captured.length > 0 && Date.now() - start > 8000) break;
       await new Promise(r => setTimeout(r, 500));
     }
 
-    // Fallback: buscar en DOM
-    if (captured.length === 0) {
-      try {
-        const found = await page.evaluate(() => {
-          const r = [];
-          for (const v of document.querySelectorAll('video')) {
-            if (v.src && !v.src.startsWith('blob:')) r.push({ url: v.src, kind: 'mp4' });
-            if (v.currentSrc && !v.currentSrc.startsWith('blob:')) r.push({ url: v.currentSrc, kind: 'mp4' });
-          }
-          for (const s of document.querySelectorAll('source')) {
-            if (s.src) r.push({ url: s.src, kind: 'mp4' });
-          }
-          return r;
-        });
-        for (const item of found) {
-          if (!isAdUrl(item.url)) {
-            captured.push({ stream: item.url, kind: item.kind, referer: embedUrl });
-          }
-        }
-      } catch (_) {}
-    }
-
     if (captured.length > 0) {
-      const best = captured.find(c => c.kind === 'hls') || captured[0];
-      console.log('[extract] 🎬 Stream final:', best.kind, '->', best.stream.slice(0, 100));
-      return best;
+      // Ordenar por prioridad (menor = mejor)
+      captured.sort((a, b) => a.priority - b.priority);
+      const best = captured[0];
+      console.log('[extract] 🎬 Stream final (p' + best.priority + '):', best.kind, '->', best.stream.slice(0, 100));
+      return { stream: best.stream, kind: best.kind, referer: best.referer };
     }
 
-    console.log('[extract] ❌ Sin stream (todo lo capturado era ad)');
+    console.log('[extract] ❌ Sin stream');
     return null;
 
   } catch (err) {
     console.error('[extract] Error general:', err.message);
     return null;
   } finally {
-    // Cerrar SOLO la página (no el browser)
-    if (page) {
-      try { await page.close(); } catch (_) {}
-    }
+    if (page) { try { await page.close(); } catch (_) {} }
   }
 }
 
@@ -269,4 +262,4 @@ module.exports = {
   default: extractM3u8FromEmbed,
 };
 
-console.log('[extract] v6 cargado — browser compartido + cola + filtro ads');
+console.log('[extract] v7 cargado — fix tik.1x2.space + master.m3u8 priority');
