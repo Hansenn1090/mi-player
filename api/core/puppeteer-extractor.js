@@ -1,14 +1,10 @@
-// ══════════════════════════════════════════════════════════════════════════
-// puppeteer-extractor.js — v2 con auto-click en botones de play
-// ══════════════════════════════════════════════════════════════════════════
-
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-async function extractM3u8(embedUrl, opts = {}) {
+async function extractM3u8FromEmbed(embedUrl, opts = {}) {
   if (!embedUrl || !/^https?:\/\//i.test(embedUrl)) return null;
 
   const timeout = opts.timeout || 30000;
@@ -20,6 +16,7 @@ async function extractM3u8(embedUrl, opts = {}) {
 
     browser = await puppeteer.launch({
       headless: 'new',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -39,38 +36,27 @@ async function extractM3u8(embedUrl, opts = {}) {
     const page = await browser.newPage();
     await page.setUserAgent(UA);
     await page.setViewport({ width: 1280, height: 720 });
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-    });
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' });
 
-    // ─── Interceptar TODO (no bloquear nada, porque a veces el m3u8 depende de recursos) ───
-    // Solo bloqueamos anuncios muy conocidos para acelerar
     await page.setRequestInterception(true);
 
     page.on('request', (req) => {
       const url = req.url();
-
-      // Capturar streams
       if (!captured) {
         if (/\.m3u8(\?|$)/i.test(url) || /master\.txt(\?|$)/i.test(url)) {
           captured = { stream: url, kind: 'hls', referer: embedUrl };
-          console.log('[extract] ✅ HLS capturado:', url.slice(0, 100));
+          console.log('[extract] HLS:', url.slice(0, 100));
         } else if (/\.mp4(\?|$)/i.test(url)) {
           captured = { stream: url, kind: 'mp4', referer: embedUrl };
-          console.log('[extract] ✅ MP4 capturado:', url.slice(0, 100));
+          console.log('[extract] MP4:', url.slice(0, 100));
         }
       }
-
-      // Bloquear solo ads MUY pesados (no tocar el resto)
-      if (/doubleclick|googlesyndication|google-analytics|popads\.net|propellerads|exoclick/i.test(url)) {
-        req.abort();
-        return;
+      if (/doubleclick|googlesyndication|google-analytics|popads|propellerads|exoclick/i.test(url)) {
+        req.abort(); return;
       }
-
       req.continue();
     });
 
-    // Captura por Content-Type
     page.on('response', async (res) => {
       if (captured) return;
       try {
@@ -78,38 +64,28 @@ async function extractM3u8(embedUrl, opts = {}) {
         const url = res.url();
         if (/application\/x-mpegurl|application\/vnd\.apple\.mpegurl/i.test(ct)) {
           captured = { stream: url, kind: 'hls', referer: embedUrl };
-          console.log('[extract] ✅ HLS por CT:', url.slice(0, 100));
+          console.log('[extract] HLS por CT:', url.slice(0, 100));
         }
       } catch (_) {}
     });
 
-    // ─── Navegar ──────────────────────────────────────────────────────
     console.log('[extract] Navegando...');
     try {
-      await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: timeout });
+      await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout });
     } catch (e) {
-      console.warn('[extract] Nav timeout (continuando):', e.message);
+      console.warn('[extract] Nav timeout:', e.message);
     }
 
-    // Esperar 2 seg a que cargue el DOM
     await new Promise(r => setTimeout(r, 2000));
 
-    // ─── AUTO-CLICK en botones de play (VOE, StreamWish, etc.) ──────
     if (!captured) {
-      console.log('[extract] Intentando auto-click en play...');
-
-      const clickSelectors = [
-        // VOE
+      console.log('[extract] Auto-click en play...');
+      const selectors = [
         'button.play-button', '.play-button', '.vjs-big-play-button',
-        '[class*="play"]', '[id*="play"]',
-        // StreamWish / FileLions
         '.jw-icon-display', '.jw-display-icon-container',
-        // Genéricos
-        'video', '.player-container', '.video-player',
-        'button[aria-label*="play" i]', 'button[title*="play" i]',
+        '[class*="play"]', '[id*="play"]', 'video', '.player-container',
       ];
-
-      for (const sel of clickSelectors) {
+      for (const sel of selectors) {
         try {
           const el = await page.$(sel);
           if (el) {
@@ -120,30 +96,25 @@ async function extractM3u8(embedUrl, opts = {}) {
           }
         } catch (_) {}
       }
-
-      // Click en coordenadas del centro (por si hay un overlay invisible)
       if (!captured) {
         try {
           const vp = page.viewport();
           await page.mouse.click(vp.width / 2, vp.height / 2);
-          console.log('[extract] Click en el centro');
+          console.log('[extract] Click centro');
           await new Promise(r => setTimeout(r, 1500));
         } catch (_) {}
       }
     }
 
-    // ─── Esperar más por si captura ──────────────────────────────────
-    const waitStart = Date.now();
-    while (!captured && Date.now() - waitStart < 12000) {
+    const start = Date.now();
+    while (!captured && Date.now() - start < 12000) {
       await new Promise(r => setTimeout(r, 500));
     }
 
-    // ─── Último intento: buscar en el DOM y en scripts ──────────────
     if (!captured) {
-      console.log('[extract] Buscando en DOM/JS...');
+      console.log('[extract] Buscando en DOM...');
       try {
         const found = await page.evaluate(() => {
-          // <video>
           for (const v of document.querySelectorAll('video')) {
             if (v.src && /\.(m3u8|mp4)/i.test(v.src)) return v.src;
             if (v.currentSrc && /\.(m3u8|mp4)/i.test(v.currentSrc)) return v.currentSrc;
@@ -151,7 +122,6 @@ async function extractM3u8(embedUrl, opts = {}) {
           for (const s of document.querySelectorAll('source')) {
             if (s.src && /\.(m3u8|mp4)/i.test(s.src)) return s.src;
           }
-          // window globals
           for (const g of ['sources', 'videoSources', 'playlist', 'hlsUrl', 'm3u8', 'file', 'source']) {
             const val = window[g];
             if (typeof val === 'string' && /\.(m3u8|mp4)/i.test(val)) return val;
@@ -160,44 +130,25 @@ async function extractM3u8(embedUrl, opts = {}) {
               if (typeof f === 'string' && /\.(m3u8|mp4)/i.test(f)) return f;
             }
           }
-          // Regex en scripts inline (buscando .m3u8)
-          const scripts = document.querySelectorAll('script');
-          for (const s of scripts) {
-            const txt = s.textContent || '';
-            const m = txt.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
-            if (m) return m[0];
-            // Buscar base64 con m3u8
-            const b64 = txt.match(/["']([A-Za-z0-9+/=]{80,})["']/);
-            if (b64) {
-              try {
-                const dec = atob(b64[1]);
-                const m2 = dec.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
-                if (m2) return m2[0];
-              } catch (_) {}
-            }
-          }
-          // Regex en HTML completo
-          const m3 = document.documentElement.innerHTML.match(/https?:\/\/[^\s"'<>\\]+\.(?:m3u8|mp4)[^\s"'<>\\]*/i);
-          if (m3) return m3[0];
-          return null;
+          const html = document.documentElement.innerHTML;
+          const m = html.match(/https?:\/\/[^\s"'<>\\]+\.(?:m3u8|mp4)[^\s"'<>\\]*/i);
+          return m ? m[0] : null;
         });
-
         if (found) {
           const kind = /\.m3u8/i.test(found) ? 'hls' : 'mp4';
           captured = { stream: found, kind, referer: embedUrl };
-          console.log('[extract] ✅ Encontrado:', found.slice(0, 100));
+          console.log('[extract] Encontrado:', found.slice(0, 100));
         }
       } catch (e) {
-        console.warn('[extract] Error DOM:', e.message);
+        console.warn('[extract] DOM error:', e.message);
       }
     }
 
     if (captured) {
-      console.log('[extract] 🎬 OK:', captured.kind, '->', captured.stream.slice(0, 100));
+      console.log('[extract] OK:', captured.kind, '->', captured.stream.slice(0, 100));
       return captured;
     }
-
-    console.log('[extract] ❌ Sin stream de:', embedUrl);
+    console.log('[extract] Sin stream');
     return null;
 
   } catch (err) {
@@ -209,10 +160,11 @@ async function extractM3u8(embedUrl, opts = {}) {
 }
 
 module.exports = {
-  extractM3u8,
-  extractStream: extractM3u8,
-  extract: extractM3u8,
-  default: extractM3u8,
+  extractM3u8FromEmbed,
+  extractM3u8: extractM3u8FromEmbed,
+  extractStream: extractM3u8FromEmbed,
+  extract: extractM3u8FromEmbed,
+  default: extractM3u8FromEmbed,
 };
 
-console.log('[extract] v2 cargado — auto-click habilitado');
+console.log('[extract] Cargado — extractM3u8FromEmbed');
