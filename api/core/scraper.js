@@ -1,9 +1,6 @@
-// ══════════════════════════════════════════════════════════════════════════
-// scraper.js — v8
-//   Orden: UnlimPlay → Vimeos (fallback)
-// ══════════════════════════════════════════════════════════════════════════
+const axios = require('axios');
 
-const { scrapeUnlimplay } = require('../providers/unlimplay');
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 async function scrapeAll(info, type = 'movie') {
   const servers = { latino: {}, subtitulado: {} };
@@ -15,41 +12,74 @@ async function scrapeAll(info, type = 'movie') {
   console.log('[scraper] TMDB', tmdbId, '—', title);
   if (!tmdbId) return { servers, sources };
 
-  // 🥇 UNLIMPLAY — Extrae los servidores vía Puppeteer
-  try {
-    const unlimplayServers = await scrapeUnlimplay(tmdbId, type);
-    for (const lang of Object.keys(unlimplayServers)) {
-      if (!servers[lang]) servers[lang] = {};
-      Object.assign(servers[lang], unlimplayServers[lang]);
+  // 🥇 PELISPLUSHD — Trae VOE, StreamWish, VidHide, FileMoon automáticamente
+  if (title) {
+    try {
+      const pelisplusServers = await scrapePelisPlusHD(title);
+      Object.assign(servers.latino, pelisplusServers);
+      sources.pelisplushd = { ok: true, count: Object.keys(pelisplusServers).length };
+      console.log('[scraper] PelisPlusHD:', Object.keys(pelisplusServers).length, 'servidores');
+    } catch (e) {
+      console.warn('[scraper] PelisPlusHD falló:', e.message);
     }
-    const total = Object.values(unlimplayServers).reduce((a, s) => a + Object.keys(s).length, 0);
-    sources.unlimplay = { ok: true, count: total };
-    console.log('[scraper] UnlimPlay:', total, 'servidores');
-  } catch (e) {
-    console.warn('[scraper] UnlimPlay falló:', e.message);
-    sources.unlimplay = { ok: false, error: e.message };
   }
 
-  // 🥈 VIMEOS — Fallback siempre disponible
-  if (!Object.keys(servers.latino).length) {
-    servers.latino['Vimeos'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
-    console.log('[scraper] Solo Vimeos disponible');
-  } else {
-    // Añadir Vimeos también si hay otros servidores
-    servers.latino['Vimeos'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
-  }
-
-  // Subtitulado (usar Vimeos como fallback)
-  if (!Object.keys(servers.subtitulado).length) {
-    servers.subtitulado['Vimeos EN'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
-  }
+  // 🥈 VIMEOS — Fallback siempre
+  servers.latino['Vimeos'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
+  servers.subtitulado['Vimeos EN'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
 
   console.log('[scraper] Total latino:', Object.keys(servers.latino).length);
-  console.log('[scraper] Total subtitulado:', Object.keys(servers.subtitulado).length);
-
   return { servers, sources };
 }
 
-module.exports = { scrapeAll };
+async function scrapePelisPlusHD(title) {
+  const found = {};
+  const bases = ['https://pelisplushd.bz', 'https://pelisplushd.la'];
 
-console.log('[scraper] v8 cargado — UnlimPlay + Vimeos');
+  for (const base of bases) {
+    try {
+      const { data: searchHtml } = await axios.get(
+        `${base}/search?s=${encodeURIComponent(title)}`,
+        { timeout: 8000, headers: { 'User-Agent': UA, 'Referer': base + '/' }, validateStatus: s => s >= 200 && s < 400 }
+      );
+
+      const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = searchHtml.match(new RegExp(`href="(${escaped}\\/pelicula\\/[^"]+)"`, 'i'));
+      if (!match) continue;
+
+      const { data: detailHtml } = await axios.get(match[1], {
+        timeout: 8000, headers: { 'User-Agent': UA, 'Referer': base }, validateStatus: s => s >= 200 && s < 400
+      });
+
+      const iframeRegex = /<iframe[^>]+src="([^"]+)"/gi;
+      let m, count = 0;
+      while ((m = iframeRegex.exec(detailHtml)) !== null) {
+        let url = m[1];
+        if (url.startsWith('//')) url = 'https:' + url;
+        if (url.startsWith('/')) url = base + url;
+        if (!url.startsWith('http')) continue;
+        if (/youtube|googleads|doubleclick|histats|yandex|tagivi|mamshirt/i.test(url)) continue;
+        const name = detectName(url) + (count > 0 ? ' ' + (++count) : '');
+        if (!found[name]) found[name] = url;
+      }
+      if (Object.keys(found).length > 0) break;
+    } catch (e) {}
+  }
+  return found;
+}
+
+function detectName(url) {
+  const u = (url || '').toLowerCase();
+  if (/voe\.sx|voe\.de|voe\.bar/i.test(u)) return 'VOE';
+  if (/streamwish|embedwish|hglink|filelions|vidhide|morencius/i.test(u)) return 'StreamWish';
+  if (/filemoon|moonplayer|byse/i.test(u)) return 'FileMoon';
+  if (/dood/i.test(u)) return 'DoodStream';
+  if (/vimeos/i.test(u)) return 'Vimeos';
+  if (/uqload/i.test(u)) return 'Uqload';
+  if (/streamtape/i.test(u)) return 'StreamTape';
+  if (/mixdrop/i.test(u)) return 'MixDrop';
+  return 'Servidor';
+}
+
+module.exports = { scrapeAll };
+console.log('[scraper] v9 cargado — PelisPlusHD + Vimeos (sin UnlimPlay)');
