@@ -213,133 +213,7 @@
 
 <script>
 /* ══════════════════════════════════════════════════════════════════════════
-   1. SNIFFER DE RED
-   ══════════════════════════════════════════════════════════════════════════ */
-(function(){
-  'use strict';
-  const detected = new Set();
-  function isMedia(u){
-    if (!u || typeof u !== 'string') return false;
-    const s = u.toLowerCase();
-    return /\.(m3u8|mp4|webm|mkv|mov|ts|mpd)(\?|$)/i.test(s) || s.includes('m3u8') || s.includes('master.txt');
-  }
-  function emit(url, source){
-    if (!url || detected.has(url)) return;
-    detected.add(url);
-    const kind = /\.m3u8(\?|$)/i.test(url) || url.includes('m3u8') ? 'hls' : 'mp4';
-    console.log('%c[Sniffer] ' + kind.toUpperCase() + ' (' + source + '): ' + url, 'color:#00d2ff');
-    window.dispatchEvent(new CustomEvent('ulp:mediaDetected', { detail: { url: url, kind: kind, source: source } }));
-  }
-  const _f = window.fetch;
-  window.fetch = function(){
-    var a = arguments;
-    try { var u = typeof a[0]==='string' ? a[0] : (a[0] && a[0].url); if (isMedia(u)) emit(u,'fetch'); } catch(_){}
-    return _f.apply(this, a);
-  };
-  const _o = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function(m, u){
-    try { if (isMedia(u)) emit(u,'xhr'); } catch(_){}
-    var args = [m, u].concat(Array.prototype.slice.call(arguments, 2));
-    return _o.apply(this, args);
-  };
-  new MutationObserver(function(muts){
-    muts.forEach(function(m){
-      m.addedNodes.forEach(function(n){
-        if (n.nodeName === 'VIDEO' || n.nodeName === 'SOURCE'){
-          var s = n.src || n.currentSrc;
-          if (isMedia(s)) emit(s,'mutation');
-        }
-      });
-    });
-  }).observe(document.documentElement, { childList:true, subtree:true });
-})();
-
-/* ══════════════════════════════════════════════════════════════════════════
-   2. TMDB — con tu API key integrada
-   ══════════════════════════════════════════════════════════════════════════ */
-const TMDB_CONFIG = {
-  apiKey: '2d85217008ed46189916cf9cf1eaef53',   // ← TU API KEY
-  language: 'es-ES',
-  baseUrl: 'https://api.themoviedb.org/3',
-  imageBase: 'https://image.tmdb.org/t/p',
-  posterSize: 'w342',
-  backdropSize: 'w1280',
-  cache: new Map()
-};
-
-function _tmdbCacheGet(key){
-  try { const v = sessionStorage.getItem('tmdb_' + key); return v ? JSON.parse(v) : null; }
-  catch(_){ return null; }
-}
-function _tmdbCacheSet(key, val){
-  try { sessionStorage.setItem('tmdb_' + key, JSON.stringify(val)); } catch(_){}
-}
-
-async function fetchTMDB(id, type){
-  if (!id) return null;
-  type = type || 'movie';
-  const cacheKey = type + '_' + id;
-  if (TMDB_CONFIG.cache.has(cacheKey)) return TMDB_CONFIG.cache.get(cacheKey);
-  const cached = _tmdbCacheGet(cacheKey);
-  if (cached){ TMDB_CONFIG.cache.set(cacheKey, cached); return cached; }
-
-  const url = TMDB_CONFIG.baseUrl + '/' + type + '/' + id + '?api_key=' + TMDB_CONFIG.apiKey + '&language=' + TMDB_CONFIG.language;
-  try {
-    const r = await fetch(url, { credentials: 'omit' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-
-    const info = {
-      id: data.id,
-      title: data.title || data.name || 'Sin título',
-      overview: data.overview || '',
-      year: (data.release_date || data.first_air_date || '').slice(0,4),
-      runtime: data.runtime || (data.episode_run_time && data.episode_run_time[0]) || 0,
-      voteAverage: Math.round((data.vote_average || 0) * 10) / 10,
-      genres: (data.genres || []).map(function(g){ return g.name; }),
-      poster: data.poster_path ? TMDB_CONFIG.imageBase + '/' + TMDB_CONFIG.posterSize + data.poster_path : null,
-      backdrop: data.backdrop_path ? TMDB_CONFIG.imageBase + '/' + TMDB_CONFIG.backdropSize + data.backdrop_path : null
-    };
-
-    TMDB_CONFIG.cache.set(cacheKey, info);
-    _tmdbCacheSet(cacheKey, info);
-    return info;
-  } catch(e){
-    console.warn('[TMDB] Error:', e.message);
-    return null;
-  }
-}
-
-function applyTMDBInfo(info){
-  if (!info) return;
-  const titleEl = document.getElementById('title-el');
-  if (titleEl) titleEl.textContent = info.title;
-
-  const backdropImg = document.getElementById('poster-backdrop-img');
-  if (backdropImg && info.backdrop){ backdropImg.src = info.backdrop; backdropImg.alt = info.title; }
-
-  const posterImg = document.getElementById('poster-img');
-  if (posterImg && info.poster){ posterImg.src = info.poster; posterImg.alt = info.title; }
-
-  const metaEl = document.getElementById('meta-el');
-  if (metaEl){
-    const parts = [];
-    if (info.year) parts.push(info.year);
-    if (info.genres && info.genres.length) parts.push(info.genres.slice(0, 2).join(' / '));
-    if (info.runtime){
-      const h = Math.floor(info.runtime / 60);
-      const m = info.runtime % 60;
-      parts.push(h > 0 ? h + 'h ' + m + 'm' : m + 'm');
-    }
-    if (info.voteAverage > 0) parts.push('⭐ ' + info.voteAverage);
-    metaEl.textContent = parts.join(' • ') || 'Sin información';
-  }
-
-  console.log('%c[TMDB] ' + info.title + ' (' + info.year + ')', 'color:#01b4e4;font-weight:bold');
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   3. CONFIGURACIÓN
+   1. CONFIGURACIÓN
    ══════════════════════════════════════════════════════════════════════════ */
 const LANG_ORDER = ['latino','español','subtitulado'];
 const LANG_META = {
@@ -354,17 +228,19 @@ const PROVIDER_DISPLAY = {
   streamplay:'Streamplay', streamhide:'StreamHide', hxfile:'HXFile',
   mp4upload:'Mp4Upload', filemoon:'FileMoon', streamtape:'StreamTape',
   rapidvideo:'RapidVideo', mixdrop:'MixDrop', okru:'Ok.ru', fembed:'FEmbed',
-  direct:'Direct', remux:'Remux', fastream:'Fastream'
+  direct:'Direct', remux:'Remux', fastream:'Fastream',
+  xpass:'Xpass', pelixplay:'PelixPlay', vimeos:'Vimeos', cineplus:'CinePlus123', poseidonhd:'PoseidonHD2'
 };
 const esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 const cap = function(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; };
+
 function trueBase(n){
   let b=n||'',p;
   do{p=b;b=b.replace(/[\s_-]+\d+$/,'').replace(/(?<=[a-zA-Z]{3})\d+$/,'');}while(b!==p);
   return b;
 }
 function normKey(n){
-  let b=(n||'').toLowerCase().replace(/[\s_-]+\d+$/,'');
+  let b=(n||'').toLowerCase().replace(/[\s_-]+\d+$/,'').replace(/^\[(hls|iframe|mp4)\]\s*/,'');
   if(['hglink','flaswish','wishfast','awish'].includes(b)) return 'streamwish';
   if(['filelions','minochinos','vihide','vidhidepro','callistanise','hgcloud','earnvids','masukesting','morencius'].includes(b)) return 'vidhide';
   if(['dood','doodcx','doodpm','doodto','doodla','d0000d'].includes(b)) return 'doodstream';
@@ -380,8 +256,15 @@ function detectByUrl(url){
   return null;
 }
 
+/* Extrae el prefijo [HLS] / [IFRAME] / [MP4] del nombre */
+function extractPrefix(name){
+  const m = (name||'').match(/^\[(HLS|IFRAME|MP4)\]\s*/i);
+  if (m) return { prefix: m[1].toLowerCase(), cleanName: name.slice(m[0].length) };
+  return { prefix: null, cleanName: name };
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
-   4. ESTADO
+   2. ESTADO
    ══════════════════════════════════════════════════════════════════════════ */
 const state = {
   isPlaying:false, hasStarted:false,
@@ -469,14 +352,14 @@ function setModeChip(k){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   5. EXTRACTOR BACKEND
+   3. EXTRACTOR BACKEND — ⚠️ CAMBIO 1: /api/extract en vez de extract.php
    ══════════════════════════════════════════════════════════════════════════ */
 async function extractFromBackend(embedUrl, timeoutMs){
-  timeoutMs = timeoutMs || 20000;
+  timeoutMs = timeoutMs || 60000;  // ⚠️ 60s porque Puppeteer tarda
   const ctrl = new AbortController();
   const t = setTimeout(function(){ ctrl.abort(); }, timeoutMs);
   try {
-    const r = await fetch('extract.php?url=' + encodeURIComponent(embedUrl), {
+    const r = await fetch('/api/extract?url=' + encodeURIComponent(embedUrl), {
       signal: ctrl.signal, credentials: 'omit'
     });
     clearTimeout(t);
@@ -491,7 +374,7 @@ async function extractFromBackend(embedUrl, timeoutMs){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   6. PANEL DE EXTRACCIÓN
+   4. PANEL DE EXTRACCIÓN
    ══════════════════════════════════════════════════════════════════════════ */
 function showExtractPanel(names){
   els.extractPanel.classList.add('on');
@@ -500,9 +383,10 @@ function showExtractPanel(names){
   els.extractBar.style.width = '0%';
   els.extractCounter.textContent = '0 / ' + names.length;
   els.extractTitle.textContent = 'Extrayendo stream limpio de cada servidor';
-  els.extractSub.textContent = 'Descargando embed y extrayendo HLS/MP4';
+  els.extractSub.textContent = 'Esto puede tardar 20-40 seg por servidor';
   names.forEach(function(name){
-    const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(trueBase(name));
+    const base = trueBase(extractPrefix(name).cleanName);
+    const disp = PROVIDER_DISPLAY[normKey(base)] || cap(base);
     const row = document.createElement('div');
     row.className = 'exitem';
     row.dataset.xname = name;
@@ -537,7 +421,7 @@ function finishExtractPanel(okCount, failCount){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   7. EXTRACCIÓN MASIVA
+   5. EXTRACCIÓN MASIVA — ⚠️ CAMBIO 2: SECUENCIAL en vez de Promise.all
    ══════════════════════════════════════════════════════════════════════════ */
 async function extractAllServers(srvs){
   const entries = Object.entries(srvs);
@@ -548,36 +432,71 @@ async function extractAllServers(srvs){
   let done = 0, okCount = 0, failCount = 0;
   const extracted = {};
 
-  await Promise.all(entries.map(async function(entry){
-    const name = entry[0], url = entry[1];
-    const byUrl = detectByUrl(url);
-    if (byUrl){
-      extracted[name] = { url: url, stream: url, kind: byUrl, referer: url };
-      updateExtractItem(name, byUrl, true);
-      okCount++;
-    } else {
-      const res = await extractFromBackend(url);
-      if (res){
-        extracted[name] = { url: url, stream: res.stream, kind: res.kind, referer: res.referer };
-        updateExtractItem(name, res.kind, true);
+  // ⚠️ SECUENCIAL — de a UNO para no crashear Render Free
+  for (let i = 0; i < entries.length; i++) {
+    const name = entries[i][0];
+    const url = entries[i][1];
+
+    // Detectar el prefijo [HLS]/[IFRAME]/[MP4] que pone el scraper
+    const { prefix, cleanName } = extractPrefix(name);
+
+    try {
+      // Si el scraper YA marcó como HLS/MP4 → no extraer, usar directo
+      if (prefix === 'hls' || prefix === 'mp4') {
+        extracted[name] = { url: url, stream: url, kind: prefix, referer: url, cleanName: cleanName };
+        updateExtractItem(name, prefix, true);
         okCount++;
-      } else {
-        extracted[name] = { url: url, stream: null, kind: 'iframe', referer: url };
-        updateExtractItem(name, 'iframe', false);
-        failCount++;
       }
+      // Si el scraper marcó como IFRAME → intentar extraer con Puppeteer
+      else if (prefix === 'iframe') {
+        const res = await extractFromBackend(url);
+        if (res) {
+          extracted[name] = { url: url, stream: res.stream, kind: res.kind, referer: res.referer, cleanName: cleanName };
+          updateExtractItem(name, res.kind, true);
+          okCount++;
+        } else {
+          extracted[name] = { url: url, stream: null, kind: 'iframe', referer: url, cleanName: cleanName };
+          updateExtractItem(name, 'iframe', false);
+          failCount++;
+        }
+      }
+      // Sin prefijo → detectar por URL
+      else {
+        const byUrl = detectByUrl(url);
+        if (byUrl) {
+          extracted[name] = { url: url, stream: url, kind: byUrl, referer: url, cleanName: cleanName };
+          updateExtractItem(name, byUrl, true);
+          okCount++;
+        } else {
+          const res = await extractFromBackend(url);
+          if (res) {
+            extracted[name] = { url: url, stream: res.stream, kind: res.kind, referer: res.referer, cleanName: cleanName };
+            updateExtractItem(name, res.kind, true);
+            okCount++;
+          } else {
+            extracted[name] = { url: url, stream: null, kind: 'iframe', referer: url, cleanName: cleanName };
+            updateExtractItem(name, 'iframe', false);
+            failCount++;
+          }
+        }
+      }
+    } catch (e) {
+      extracted[name] = { url: url, stream: null, kind: 'iframe', referer: url, cleanName: cleanName };
+      updateExtractItem(name, 'iframe', false);
+      failCount++;
     }
+
     done++;
     updateExtractProgress(done, total);
-  }));
+  }
 
   _extracted = extracted;
   finishExtractPanel(okCount, failCount);
-  await new Promise(function(r){ setTimeout(r, 1200); });
+  await new Promise(function(r){ setTimeout(r, 800); });
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   8. MONTAJE
+   6. MONTAJE
    ══════════════════════════════════════════════════════════════════════════ */
 function teardown(){
   if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
@@ -651,7 +570,7 @@ function mountIframe(url){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   9. CARGA DE SERVIDOR
+   7. CARGA DE SERVIDOR
    ══════════════════════════════════════════════════════════════════════════ */
 function loadServer(name){
   const srv = _extracted[name];
@@ -662,7 +581,7 @@ function loadServer(name){
   });
   if (els.btnOpenDirect) els.btnOpenDirect.dataset.url = srv.stream || srv.url;
 
-  const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(trueBase(name));
+  const disp = PROVIDER_DISPLAY[normKey(trueBase(srv.cleanName || name))] || cap(trueBase(srv.cleanName || name));
   const label = srv.kind === 'hls' ? 'HLS' : srv.kind === 'mp4' ? 'MP4' : 'iframe';
   showLoading('Cargando ' + disp + ' (' + label + ')…');
   setModeChip(srv.kind);
@@ -684,7 +603,7 @@ function loadServer(name){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   10. AUTO-CARGA
+   8. AUTO-CARGA
    ══════════════════════════════════════════════════════════════════════════ */
 function autoLoadBest(){
   const names = Object.keys(_extracted);
@@ -695,7 +614,7 @@ function autoLoadBest(){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   11. AUTO-DISPATCH desde sniffer
+   9. AUTO-DISPATCH desde sniffer
    ══════════════════════════════════════════════════════════════════════════ */
 window.addEventListener('ulp:mediaDetected', function(e){
   const detail = e.detail;
@@ -711,7 +630,7 @@ window.addEventListener('ulp:mediaDetected', function(e){
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   12. RENDER BOTONES
+   10. RENDER BOTONES
    ══════════════════════════════════════════════════════════════════════════ */
 function renderServerButtons(){
   const c = els.serverButtonsScroll;
@@ -723,15 +642,16 @@ function renderServerButtons(){
   }
   const totals = {}, seen = {};
   names.forEach(function(n){
-    const k = normKey(trueBase(n));
+    const k = normKey(trueBase(_extracted[n].cleanName || n));
     totals[k] = (totals[k]||0)+1;
   });
   const prio = { hls:0, mp4:1, iframe:2 };
   names.sort(function(a,b){ return (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3); });
 
   names.forEach(function(name){
-    const kind = _extracted[name].kind;
-    const base = trueBase(name);
+    const srv = _extracted[name];
+    const kind = srv.kind;
+    const base = trueBase(srv.cleanName || name);
     const key = normKey(base);
     seen[key] = (seen[key]||0)+1;
     const num = totals[key] > 1 ? seen[key] : null;
@@ -754,7 +674,7 @@ function renderServerButtons(){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   13. IDIOMA
+   11. IDIOMA
    ══════════════════════════════════════════════════════════════════════════ */
 function renderLangButtons(){
   const b = els.langButtons;
@@ -783,7 +703,7 @@ async function switchLang(lang){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   14. SCRUBBER / PLAY
+   12. SCRUBBER / PLAY
    ══════════════════════════════════════════════════════════════════════════ */
 function updateScrubber(){
   if (state.duration <= 0){
@@ -826,7 +746,7 @@ function forward10(){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   15. HUD
+   13. HUD
    ══════════════════════════════════════════════════════════════════════════ */
 function showHUD(){ state.isHudVisible=true; els.hud.classList.remove('hud-hidden'); els.btnRevealHud.classList.add('opacity-0','pointer-events-none'); }
 function hideHUD(){ if (state.isOptionsDrawerOpen) return; state.isHudVisible=false; els.hud.classList.add('hud-hidden'); els.btnRevealHud.classList.remove('opacity-0','pointer-events-none'); }
@@ -861,7 +781,7 @@ function applyAspect(mode){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   16. LISTENERS
+   14. LISTENERS
    ══════════════════════════════════════════════════════════════════════════ */
 els.btnToggleOptions.addEventListener('click', function(e){ e.stopPropagation(); toggleOptionsDrawer(); });
 els.btnRevealHud.addEventListener('click', function(){ showHUD(); resetIdleTimer(); });
@@ -924,69 +844,95 @@ window.addEventListener('keydown', function(e){
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   17. FINALIZE PLAYER — con TMDB
+   15. TMDB — aplicar meta que viene del backend
    ══════════════════════════════════════════════════════════════════════════ */
-function filterEmbeds(raw){
-  const out = {};
-  LANG_ORDER.forEach(function(lang){
-    if (!raw[lang] || !Object.keys(raw[lang]).length) return;
-    out[lang] = {};
-    Object.keys(raw[lang]).forEach(function(n){ out[lang][n] = raw[lang][n]; });
-  });
-  return out;
-}
+function applyMetaFromBackend(meta){
+  if (!meta) return;
 
-window.finalizePlayer = async function(finalData, tmdbId, tmdbType){
-  embeds = filterEmbeds(finalData || {});
-  if (!Object.keys(embeds).length){ showToast('Sin servidores'); return; }
+  // Título
+  const titleEl = document.getElementById('title-el');
+  if (titleEl && meta.title) titleEl.textContent = meta.title;
 
-  if (tmdbId){
-    fetchTMDB(tmdbId, tmdbType || 'movie').then(function(info){
-      if (info) applyTMDBInfo(info);
-    }).catch(function(){});
+  // Backdrop
+  const backdropImg = document.getElementById('poster-backdrop-img');
+  if (backdropImg && meta.backdrop) backdropImg.src = meta.backdrop;
+  else if (backdropImg && meta.poster) backdropImg.src = meta.poster;
+
+  // Poster miniatura
+  const posterImg = document.getElementById('poster-img');
+  if (posterImg && meta.poster) posterImg.src = meta.poster;
+
+  // Meta info (año • género • duración • rating)
+  const metaEl = document.getElementById('meta-el');
+  if (metaEl){
+    const parts = [];
+    if (meta.year) parts.push(meta.year);
+    if (meta.genres && meta.genres.length) parts.push(meta.genres.slice(0, 2).join(' / '));
+    if (meta.runtime){
+      const h = Math.floor(meta.runtime / 60);
+      const m = meta.runtime % 60;
+      parts.push(h > 0 ? h + 'h ' + m + 'm' : m + 'm');
+    }
+    if (meta.voteAverage > 0) parts.push('⭐ ' + meta.voteAverage);
+    metaEl.textContent = parts.join(' • ') || 'Sin información';
   }
 
-  state.currentLang = LANG_ORDER.find(function(l){ return embeds[l]; }) || Object.keys(embeds)[0];
-  if (_playerBuilt) return;
-  _playerBuilt = true;
-  renderLangButtons();
+  // Título del documento
+  if (meta.title) document.title = meta.title + ' — UnLim Play';
 
-  const srvs = embeds[state.currentLang] || {};
-  await extractAllServers(srvs);
-  renderServerButtons();
-  setTimeout(autoLoadBest, 300);
-};
+  console.log('%c[TMDB] ' + meta.title + ' (' + meta.year + ')', 'color:#01b4e4;font-weight:bold');
+}
 
-renderLangButtons();
-resetIdleTimer();
-</script>
+/* ══════════════════════════════════════════════════════════════════════════
+   16. INIT — ⚠️ CAMBIO 3: carga servidores de /api/servers
+   ══════════════════════════════════════════════════════════════════════════ */
+function getQueryParam(name){
+  return new URLSearchParams(location.search).get(name);
+}
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     DEMO — El backend debe reemplazar esto por:
-       finalizePlayer(<embeds>, <tmdb_id>, '<movie|tv>')
-     ═══════════════════════════════════════════════════════════════════════════ -->
-<script>
-setTimeout(function(){
-  window.finalizePlayer(
-    {
-      latino: {
-        "streamwish":   "https://embedwish.com/e/nem4wfb460d8",
-        "filelions":    "https://morencius.com/v/p6lkbc1ybra7",
-        "voe":          "https://voe.sx/e/nklxi1htdpvj",
-        "vidhide":      "https://morencius.com/v/ayii0398sn3c",
-        "doodstream":   "https://doodstream.com/e/mztg10ibtsmv",
-        "fastream":     "https://fastream.to/embed-9d91zmtg5zso.html"
-      },
-      subtitulado: {
-        "streamwish":   "https://embedwish.com/e/txv5uv8wgh66",
-        "voe":          "https://voe.sx/e/lwg5bpu000wp",
-        "vidhide":      "https://morencius.com/v/8h5gq90r1stu"
-      }
-    },
-    734253,        // ← TMDB ID de Unabomber (2021)
-    'movie'
-  );
-}, 400);
+async function init(){
+  const id = getQueryParam('id') || '293660';
+  const type = getQueryParam('type') || 'movie';
+
+  showLoading('Buscando servidores para TMDB ' + id + '…');
+
+  try {
+    const r = await fetch('/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+
+    if (!data.servers || !Object.keys(data.servers).length){
+      showToast('Sin servidores disponibles');
+      hideLoading();
+      return;
+    }
+
+    // Aplicar meta de TMDB que viene del backend
+    if (data.meta) applyMetaFromBackend(data.meta);
+
+    embeds = data.servers;
+
+    // Elegir idioma inicial
+    state.currentLang = LANG_ORDER.find(function(l){ return embeds[l]; }) || Object.keys(embeds)[0];
+    renderLangButtons();
+
+    hideLoading();
+
+    // Extraer servidores del idioma actual (secuencial)
+    const srvs = embeds[state.currentLang] || {};
+    await extractAllServers(srvs);
+    renderServerButtons();
+    autoLoadBest();
+
+  } catch(e){
+    console.error('[Init] Error:', e);
+    showToast('Error al cargar: ' + e.message);
+    hideLoading();
+  }
+}
+
+// Arrancar
+init();
 </script>
 
 </body>
