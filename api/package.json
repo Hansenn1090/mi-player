@@ -1,11 +1,11 @@
 {
   "name": "mi-player-api",
   "version": "1.0.0",
+  "description": "API para mi-player",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "start": "node server.js"
   },
   "engines": {
     "node": ">=20.0.0"
