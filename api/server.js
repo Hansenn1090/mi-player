@@ -5,23 +5,12 @@ const path = require('path');
 const fs = require('fs');
 
 let scrapeAll, getMediaInfo, cache;
-try { ({ scrapeAll } = require('./core/scraper')); } catch (e) { 
-  console.error('[init] scraper.js:', e.message); scrapeAll = async () => ({ servers: {}, sources: [] }); 
-}
-try { ({ getMediaInfo } = require('./core/tmdb')); } catch (e) { 
-  console.error('[init] tmdb.js:', e.message); getMediaInfo = async (id) => ({ tmdbId: id }); 
-}
-try { cache = require('./core/cache'); } catch (e) { 
-  cache = { get: () => null, set: () => {} }; 
-}
+try { ({ scrapeAll } = require('./core/scraper')); } catch (e) { scrapeAll = async () => ({ servers: {}, sources: {} }); }
+try { ({ getMediaInfo } = require('./core/tmdb')); } catch (e) { getMediaInfo = async (id) => ({ tmdbId: id, title: 'Sin info' }); }
+try { cache = require('./core/cache'); } catch (e) { cache = { get: () => null, set: () => {} }; }
 
 let extractorModule = null;
-try { 
-  extractorModule = require('./core/puppeteer-extractor'); 
-  console.log('[init] extractor OK. Exports:', Object.keys(extractorModule));
-} catch (e) { 
-  console.warn('[init] extractor:', e.message); 
-}
+try { extractorModule = require('./core/puppeteer-extractor'); } catch (e) {}
 
 const app = express();
 app.use(cors());
@@ -37,26 +26,64 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), tmdb: !!process.env.TMDB_API_KEY, extractor: !!extractorModule, node: process.version });
 });
 
+// ⚠️ /api/servers NUNCA devuelve 500
 app.get('/api/servers', async (req, res) => {
   const { id, type = 'movie', season = '', episode = '' } = req.query;
-  if (!id) return res.status(400).json({ error: 'Falta ?id=' });
+
+  if (!id) {
+    return res.json({ servers: {}, meta: {}, sources: {}, error: 'Falta ?id=' });
+  }
+
   let cached = null;
   try { cached = cache.get(id, type, season, episode); } catch (_) {}
   if (cached && cached._fresh) return res.json({ ...cached, source: 'cache' });
+
   try {
+    console.log(`[api/servers] ${type}/${id} → scraping...`);
+
     const info = await getMediaInfo(id, type);
-    const { servers, sources } = await scrapeAll(info, type);
-    if (!servers || !Object.keys(servers).length) {
-      if (cached) return res.json({ ...cached, source: 'snapshot' });
-      return res.json({ servers: {}, meta: info || {}, sources: sources || [], source: 'empty' });
+
+    // ⚠️ info SIEMPRE tiene title (nunca null)
+    let scrapeResult = { servers: {}, sources: {} };
+    try {
+      scrapeResult = await scrapeAll(info, type);
+    } catch (e) {
+      console.warn('[api/servers] scrapeAll error:', e.message);
     }
-    const payload = { servers, meta: { tmdbId: id, type, title: info.title || '', year: info.year || '', poster: info.poster || '', backdrop: info.backdrop || '', overview: info.overview || '', runtime: info.runtime || 0, genres: info.genres || [], voteAverage: info.voteAverage || 0 }, sources };
+
+    const { servers = {}, sources = {} } = scrapeResult;
+
+    const payload = {
+      servers: servers || {},
+      meta: {
+        tmdbId: id, type,
+        title: info.title || '',
+        year: info.year || '',
+        poster: info.poster || '',
+        backdrop: info.backdrop || '',
+        overview: info.overview || '',
+        runtime: info.runtime || 0,
+        genres: info.genres || [],
+        voteAverage: info.voteAverage || 0,
+      },
+      sources: sources || {},
+    };
+
     try { cache.set(id, type, season, episode, payload); } catch (_) {}
+
+    console.log('[api/servers] OK:', Object.keys(payload.servers).map(l => `${l}:${Object.keys(payload.servers[l] || {}).length}`).join(' '));
+
     res.json({ ...payload, source: 'fresh' });
   } catch (err) {
-    console.error('[api/servers]', err.message);
-    if (cached) return res.json({ ...cached, source: 'snapshot-error' });
-    res.status(500).json({ error: err.message });
+    console.error('[api/servers] Error:', err.message);
+    // ⚠️ Aunque falle, devolvemos 200 con error para que el player no crashee
+    res.json({
+      servers: {},
+      meta: { tmdbId: id, type, title: 'Error temporal' },
+      sources: {},
+      error: err.message,
+      source: 'error',
+    });
   }
 });
 
@@ -74,7 +101,6 @@ app.get('/api/extract', async (req, res) => {
     extractorModule.default;
 
   if (typeof extractFn !== 'function') {
-    console.warn('[api/extract] No encontrada. Exports:', Object.keys(extractorModule));
     return res.json({ error: 'Extractor no disponible', kind: 'iframe' });
   }
 
@@ -82,7 +108,7 @@ app.get('/api/extract', async (req, res) => {
     console.log('[api/extract] Extrayendo:', url);
     const result = await extractFn(url);
     if (!result || !result.stream) return res.json({ error: 'Sin stream', kind: 'iframe' });
-    console.log('[api/extract] OK:', result.kind, result.stream.slice(0, 80));
+    console.log('[api/extract] OK:', result.kind);
     res.json({ stream: result.stream, kind: result.kind || 'hls', referer: result.referer || url });
   } catch (e) {
     console.error('[api/extract]', e.message);
@@ -90,28 +116,21 @@ app.get('/api/extract', async (req, res) => {
   }
 });
 
-app.get('/api/tmdb', async (req, res) => {
-  const { id, type = 'movie', lang = 'es-ES' } = req.query;
-  const key = process.env.TMDB_API_KEY;
-  if (!id) return res.status(400).json({ error: 'Falta ?id=' });
-  if (!key) return res.status(500).json({ error: 'TMDB_API_KEY no configurada' });
-  try {
-    const axios = require('axios');
-    const r = await axios.get(`https://api.themoviedb.org/3/${type}/${id}?api_key=${key}&language=${lang}`, { timeout: 10000 });
-    res.json(r.data);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 function findPlayerHtml() {
-  const c = [path.join(__dirname, '..', 'player.html'), path.join(__dirname, 'player.html'), path.join(process.cwd(), 'player.html')];
+  const c = [path.join(__dirname, '..', 'player.html'), path.join(__dirname, 'player.html')];
   for (const p of c) { try { if (fs.existsSync(p)) return p; } catch (_) {} }
   return null;
 }
-app.get('/', (req, res) => { const p = findPlayerHtml(); if (!p) return res.status(404).send('player.html no encontrado'); res.sendFile(p); });
-app.get('/player.html', (req, res) => { const p = findPlayerHtml(); if (!p) return res.status(404).send('player.html no encontrado'); res.sendFile(p); });
-
-app.use(express.static(path.join(__dirname, '..')));
-app.use(express.static(path.join(__dirname)));
+app.get('/', (req, res) => {
+  const p = findPlayerHtml();
+  if (!p) return res.status(404).send('player.html no encontrado');
+  res.sendFile(p);
+});
+app.get('/player.html', (req, res) => {
+  const p = findPlayerHtml();
+  if (!p) return res.status(404).send('player.html no encontrado');
+  res.sendFile(p);
+});
 
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.originalUrl }));
 
@@ -120,8 +139,6 @@ app.listen(PORT, () => {
   console.log('');
   console.log('===========================================');
   console.log('  mi-player listo');
-  console.log('  Player:     http://localhost:' + PORT + '/');
-  console.log('  Health:     http://localhost:' + PORT + '/api/health');
   console.log('  TMDB:       ' + (process.env.TMDB_API_KEY ? 'OK' : 'FALTA'));
   console.log('  Extractor:  ' + (extractorModule ? 'OK' : 'FALTA'));
   console.log('  Node:       ' + process.version);
