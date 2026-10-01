@@ -36,7 +36,7 @@
   input[type=range]{-webkit-appearance:none;width:100%;background:transparent;cursor:pointer;height:20px}
   input[type=range]::-webkit-slider-runnable-track{height:4px;background:rgba(255,255,255,.15);border-radius:9999px}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:#00d2ff;border-radius:50%;margin-top:-5px;border:2px solid #fff;box-shadow:0 0 8px rgba(0,210,255,.8)}
-  #video-title{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:40;font-size:13px;font-weight:600;color:#fff;background:rgba(0,0,0,.6);padding:6px 14px;border-radius:8px;backdrop-filter:blur(10px);pointer-events:none;max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #video-title{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:40;font-size:13px;font-weight:600;color:#fff;background:rgba(0,0,0,.6);padding:6px 14px;border-radius:8px;backdrop-filter:blur(10px);pointer-events:none;max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:none}
 </style>
 </head>
 <body>
@@ -44,7 +44,7 @@
 <div id="playerContainer">
   <div id="video-stage"></div>
   <div id="mode-chip" class="hidden">—</div>
-  <div id="video-title" style="display:none"></div>
+  <div id="video-title"></div>
   <div id="loading"><div class="sp"></div><span id="loading-text">Cargando…</span></div>
   <div id="toast"></div>
 
@@ -76,9 +76,6 @@
 </div>
 
 <script>
-/* ══════════════════════════════════════════════════════════════════════════
-   1. ESTADO
-   ══════════════════════════════════════════════════════════════════════════ */
 const state = {
   isPlaying: false, currentTime: 0, duration: 0,
   isSeeking: false, isPanelOpen: false,
@@ -90,8 +87,7 @@ let _currentFrame = null, _currentVideoEl = null, _currentHls = null;
 
 const $ = id => document.getElementById(id);
 const els = {
-  stage: $('video-stage'), modeChip: $('mode-chip'),
-  videoTitle: $('video-title'),
+  stage: $('video-stage'), modeChip: $('mode-chip'), videoTitle: $('video-title'),
   loading: $('loading'), loadingText: $('loading-text'), toast: $('toast'),
   hud: $('osd-hud'), optionsPanel: $('options-panel'), btnTogglePanel: $('btn-toggle-panel'),
   serverButtons: $('server-buttons'), srvStatusBadge: $('srv-status-badge'),
@@ -107,21 +103,18 @@ const LANG_META = {
   'español':     { label:'ESPAÑOL', flag:'es' },
   'subtitulado': { label:'SUBTITULADO', flag:'us' },
 };
-
 const PROVIDER_DISPLAY = {
   vimeos:'Vimeos', voe:'VOE', streamwish:'StreamWish', vidhide:'VidHide',
   filelions:'FileLions', filemoon:'FileMoon', doodstream:'DoodStream',
   fembed:'Fembed', streamtape:'StreamTape', mixdrop:'MixDrop', okru:'OkRu',
   uqload:'Uqload', vidspeed:'VidSpeed', vidmoly:'Vidmoly',
   mp4upload:'Mp4Upload', netu:'Netu', fastream:'Fastream',
-  pelixplay:'PelixPlay', xpass:'Xpass', pelisplay:'Pelisplay',
 };
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
-
 function normKey(n){
-  let b = (n||'').toLowerCase().replace(/[\s_-]+\d+$/,'').replace(/^\[(hls|iframe|mp4)\]\s*/,'');
+  let b = (n||'').toLowerCase().replace(/[\s_-]+\d+$/,'');
   if (['hglink','flaswish','wishfast','awish'].includes(b)) return 'streamwish';
   if (['filelions','minochinos','vihide','vidhidepro','callistanise','hgcloud','earnvids','masukesting','morencius'].includes(b)) return 'vidhide';
   if (['dood','doodcx','doodpm','doodto','doodla','d0000d'].includes(b)) return 'doodstream';
@@ -132,7 +125,6 @@ function trueBase(n){
   do{p=b;b=b.replace(/[\s_-]+\d+$/,'').replace(/(?<=[a-zA-Z]{3})\d+$/,'');}while(b!==p);
   return b;
 }
-
 const HLS_RE = [/\.m3u8(\?|$)/i, /master\.txt(\?|$)/i, /\/stream(\?|\.m3u8\?|\.php\?)url=/i, /hls_proxy1\.php/i];
 const MP4_RE = [/\.mp4(\?|$)/i, /\.webm(\?|$)/i, /\.mov(\?|$)/i];
 function detectByUrl(url){
@@ -142,9 +134,6 @@ function detectByUrl(url){
   return null;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   2. UI helpers
-   ══════════════════════════════════════════════════════════════════════════ */
 function showToast(m, d){
   d = d || 3000;
   els.toast.textContent = m;
@@ -169,9 +158,6 @@ function setModeChip(k){
                           : '● IFRAME EXTERNO • CONTROLES DEL EMBED';
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   3. Extracción desde backend
-   ══════════════════════════════════════════════════════════════════════════ */
 async function extractFromBackend(embedUrl){
   try {
     const r = await fetch('/api/extract?url=' + encodeURIComponent(embedUrl));
@@ -179,28 +165,20 @@ async function extractFromBackend(embedUrl){
     const data = await r.json();
     if (data.error || !data.stream) return null;
     return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer };
-  } catch(e){
-    return null;
-  }
+  } catch(e){ return null; }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   4. Extracción secuencial (1 a la vez, sin crashear)
-   ══════════════════════════════════════════════════════════════════════════ */
 async function extractAllServers(srvs){
   const entries = Object.entries(srvs);
   const extracted = {};
-
   for (let i = 0; i < entries.length; i++){
     const name = entries[i][0];
     const url = entries[i][1];
-
     const byUrl = detectByUrl(url);
     if (byUrl){
       extracted[name] = { url, stream: url, kind: byUrl, referer: url };
       continue;
     }
-
     showLoading('Extrayendo ' + (i+1) + '/' + entries.length + ': ' + cap(name) + '…');
     const res = await extractFromBackend(url);
     if (res){
@@ -209,14 +187,10 @@ async function extractAllServers(srvs){
       extracted[name] = { url, stream: null, kind: 'iframe', referer: url };
     }
   }
-
   hideLoading();
   _extracted = extracted;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   5. Montaje de reproductor
-   ══════════════════════════════════════════════════════════════════════════ */
 function teardown(){
   if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
   if (_currentFrame){ try{ _currentFrame.remove(); }catch(_){} _currentFrame = null; }
@@ -238,7 +212,6 @@ function mountHls(url){
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideo(vid);
-
   if (typeof Hls !== 'undefined' && Hls.isSupported()){
     const hls = new Hls({ maxBufferLength:30, startLevel:-1, enableWorker:true });
     _currentHls = hls;
@@ -282,30 +255,22 @@ function mountIframe(url){
   els.hud.classList.add('hud-hidden');
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   6. Cargar servidor
-   ══════════════════════════════════════════════════════════════════════════ */
 function loadServer(name){
   const srv = _extracted[name];
   if (!srv) return;
   state.currentSrv = name;
-
   els.serverButtons.querySelectorAll('button').forEach(b => {
     b.classList.toggle('active', b.dataset.srv === name);
   });
-
   const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
   const label = srv.kind === 'hls' ? 'HLS' : srv.kind === 'mp4' ? 'MP4' : 'iframe';
   showLoading('Cargando ' + disp + ' (' + label + ')…');
   setModeChip(srv.kind);
-
   teardown();
-
   if (srv.stream && srv.kind === 'hls') mountHls(srv.stream);
   else if (srv.stream && srv.kind === 'mp4') mountMp4(srv.stream);
   else mountIframe(srv.url);
 }
-
 function autoLoadBest(){
   const names = Object.keys(_extracted);
   if (!names.length) return;
@@ -313,10 +278,6 @@ function autoLoadBest(){
   names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
   loadServer(names[0]);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
-   7. Render botones
-   ══════════════════════════════════════════════════════════════════════════ */
 function renderServerButtons(){
   els.serverButtons.innerHTML = '';
   const names = Object.keys(_extracted);
@@ -326,7 +287,6 @@ function renderServerButtons(){
   }
   const prio = { hls:0, mp4:1, iframe:2 };
   names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
-
   names.forEach(name => {
     const kind = _extracted[name].kind;
     const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
@@ -337,14 +297,9 @@ function renderServerButtons(){
     btn.onclick = () => loadServer(name);
     els.serverButtons.appendChild(btn);
   });
-
   const clean = names.filter(n => _extracted[n].kind !== 'iframe').length;
   els.srvStatusBadge.textContent = '✓ ' + clean + ' nativos + ' + (names.length - clean) + ' iframe';
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
-   8. Idiomas
-   ══════════════════════════════════════════════════════════════════════════ */
 function renderLangButtons(){
   els.langButtons.innerHTML = '';
   LANG_ORDER.forEach(lang => {
@@ -368,9 +323,6 @@ async function switchLang(lang){
   showToast('Idioma: ' + LANG_META[lang].label);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   9. Scrubber / Play
-   ══════════════════════════════════════════════════════════════════════════ */
 function updateScrubber(){
   if (state.duration <= 0){
     els.seekSlider.value = 0;
@@ -399,9 +351,6 @@ function forward10(){
   else showToast('Solo en HLS/MP4');
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   10. Listeners
-   ══════════════════════════════════════════════════════════════════════════ */
 els.btnPlay.onclick = togglePlay;
 els.btnRewind.onclick = rewind10;
 els.btnForward.onclick = forward10;
@@ -410,7 +359,6 @@ els.btnTogglePanel.onclick = () => {
   els.optionsPanel.style.maxHeight = state.isPanelOpen ? '600px' : '0';
   els.optionsPanel.style.padding = state.isPanelOpen ? '14px 16px' : '0 16px';
 };
-
 els.seekSlider.addEventListener('input', e => {
   if (state.currentKind === 'iframe') return;
   const pct = parseFloat(e.target.value);
@@ -427,55 +375,41 @@ els.seekSlider.addEventListener('change', e => {
 els.seekSlider.addEventListener('pointerdown', () => state.isSeeking = true);
 els.seekSlider.addEventListener('pointerup', () => state.isSeeking = false);
 
-/* ══════════════════════════════════════════════════════════════════════════
-   11. Init
-   ══════════════════════════════════════════════════════════════════════════ */
 function getQueryParam(name){
   return new URLSearchParams(location.search).get(name);
 }
-
 async function init(){
   const id = getQueryParam('id') || '293660';
   const type = getQueryParam('type') || 'movie';
-
   showLoading('Buscando servidores…');
-
   try {
     const r = await fetch('/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-
     if (!data.servers || !Object.keys(data.servers).length){
       showToast('Sin servidores disponibles');
       hideLoading();
       return;
     }
-
-    // Mostrar título de TMDB
     if (data.meta && data.meta.title){
       document.title = data.meta.title + ' — UnLim Play';
       els.videoTitle.style.display = 'block';
       els.videoTitle.textContent = data.meta.title + (data.meta.year ? ' (' + data.meta.year + ')' : '');
     }
-
     embeds = data.servers;
     state.currentLang = LANG_ORDER.find(l => embeds[l]) || Object.keys(embeds)[0];
     renderLangButtons();
-
     hideLoading();
-
     const srvs = embeds[state.currentLang] || {};
     await extractAllServers(srvs);
     renderServerButtons();
     autoLoadBest();
-
   } catch(e){
     console.error('[Init]', e);
     showToast('Error: ' + e.message);
     hideLoading();
   }
 }
-
 init();
 </script>
 
