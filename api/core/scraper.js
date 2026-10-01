@@ -12,7 +12,14 @@ async function scrapeAll(info, type = 'movie') {
   console.log('[scraper] TMDB', tmdbId, '—', title);
   if (!tmdbId) return { servers, sources };
 
-  // 🥇 PELISPLUSHD — Trae VOE, StreamWish, VidHide, FileMoon automáticamente
+  // 🥇 XPASS — Funciona con filtro de ads v7
+  servers.latino['Xpass'] = `https://play.xpass.top/e/${type}/${tmdbId}`;
+  servers.subtitulado['Xpass EN'] = `https://play.xpass.top/e/${type}/${tmdbId}`;
+
+  // 🥈 VIMEOS — Solo si tiene contenido
+  servers.latino['Vimeos'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
+
+  // 🥉 PelisPlusHD — Filtrar embed69 (roto)
   if (title) {
     try {
       const pelisplusServers = await scrapePelisPlusHD(title);
@@ -23,10 +30,6 @@ async function scrapeAll(info, type = 'movie') {
       console.warn('[scraper] PelisPlusHD falló:', e.message);
     }
   }
-
-  // 🥈 VIMEOS — Fallback siempre
-  servers.latino['Vimeos'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
-  servers.subtitulado['Vimeos EN'] = `https://vimeos.unlimplay.com/?id=${tmdbId}`;
 
   console.log('[scraper] Total latino:', Object.keys(servers.latino).length);
   return { servers, sources };
@@ -58,9 +61,17 @@ async function scrapePelisPlusHD(title) {
         if (url.startsWith('//')) url = 'https:' + url;
         if (url.startsWith('/')) url = base + url;
         if (!url.startsWith('http')) continue;
-        if (/youtube|googleads|doubleclick|histats|yandex|tagivi|mamshirt/i.test(url)) continue;
-        const name = detectName(url) + (count > 0 ? ' ' + (++count) : '');
-        if (!found[name]) found[name] = url;
+
+        // FILTRAR servidores rotos/desconocidos
+        if (/embed69|youtube|googleads|doubleclick|histats|yandex|tagivi|mamshirt/i.test(url)) continue;
+
+        const name = detectName(url);
+        if (!name) continue; // Descartar desconocidos
+
+        if (!found[name]) {
+          found[name] = url;
+          count++;
+        }
       }
       if (Object.keys(found).length > 0) break;
     } catch (e) {}
@@ -75,11 +86,12 @@ function detectName(url) {
   if (/filemoon|moonplayer|byse/i.test(u)) return 'FileMoon';
   if (/dood/i.test(u)) return 'DoodStream';
   if (/vimeos/i.test(u)) return 'Vimeos';
+  if (/xpass/i.test(u)) return 'Xpass';
   if (/uqload/i.test(u)) return 'Uqload';
   if (/streamtape/i.test(u)) return 'StreamTape';
   if (/mixdrop/i.test(u)) return 'MixDrop';
-  return 'Servidor';
+  return null;
 }
 
 module.exports = { scrapeAll };
-console.log('[scraper] v9 cargado — PelisPlusHD + Vimeos (sin UnlimPlay)');
+console.log('[scraper] v11 — Xpass primero + PelisPlusHD filtrado');
