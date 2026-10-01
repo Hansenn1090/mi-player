@@ -1,9 +1,9 @@
 // ══════════════════════════════════════════════════════════════════════════
 // puppeteer-extractor.js — v7
-//   • Removido tik.1x2.space de ads (es el CDN real de xpass)
-//   • Preferencia por master.m3u8 sobre index-*.m3u8
-//   • Sin --single-process (crashea en Render Free)
-//   • Browser compartido + cola
+//   • Browser compartido (no lanza Chrome por cada request)
+//   • Cola de extracción (1 a la vez)
+//   • Filtro de ads reales
+//   • Prioriza master.m3u8 sobre index-*.m3u8
 // ══════════════════════════════════════════════════════════════════════════
 
 const puppeteer = require('puppeteer-extra');
@@ -13,8 +13,8 @@ puppeteer.use(StealthPlugin());
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // ══════════════════════════════════════════════════════════════════════════
-// FILTRO DE ADS — solo trackers y ads reales
-// ⚠️ NO incluir tik.1x2.space — es el CDN de contenido de xpass
+// FILTRO DE ADS
+// ⚠️ NO incluir tik.1x2.space — es el CDN real de Xpass
 // ══════════════════════════════════════════════════════════════════════════
 const AD_CDN_PATTERNS = [
   /adtng/i,
@@ -63,7 +63,6 @@ async function getBrowser() {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      // ⚠️ SIN --single-process (crashea en Render Free)
       '--no-zygote',
       '--disable-gpu',
       '--disable-software-rasterizer',
@@ -99,7 +98,7 @@ async function getBrowser() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// COLA
+// COLA DE EXTRACCIÓN
 // ══════════════════════════════════════════════════════════════════════════
 let _extractionQueue = Promise.resolve();
 
@@ -120,7 +119,7 @@ async function _doExtract(embedUrl, opts = {}) {
 
   const timeout = opts.timeout || 35000;
   let page = null;
-  const captured = [];  // Ahora guarda { stream, kind, priority }
+  const captured = [];
 
   try {
     console.log('[extract] Iniciando para:', embedUrl);
@@ -137,7 +136,7 @@ async function _doExtract(embedUrl, opts = {}) {
     page.on('request', (req) => {
       const url = req.url();
 
-      // Bloquear solo ads/trackers reales
+      // Bloquear ads/trackers reales
       if (isAdUrl(url)) {
         console.log('[extract] 🚫 Ad bloqueado:', url.slice(0, 80));
         req.abort();
@@ -146,24 +145,19 @@ async function _doExtract(embedUrl, opts = {}) {
 
       // Capturar HLS con prioridad
       if (/\.m3u8(\?|$)/i.test(url) || /master\.txt(\?|$)/i.test(url)) {
-        // Prioridad 1: master.m3u8 (contenido principal)
         if (/\/master\.m3u8/i.test(url) || /master\.txt/i.test(url)) {
           console.log('[extract] ✅ HLS master:', url.slice(0, 100));
           captured.push({ stream: url, kind: 'hls', referer: embedUrl, priority: 1 });
-        }
-        // Prioridad 3: index-*.m3u8 (probablemente ad)
-        else if (/\/index-[^\/]*\.m3u8/i.test(url)) {
+        } else if (/\/index-[^\/]*\.m3u8/i.test(url)) {
           console.log('[extract] ⚠️ HLS index (posible ad):', url.slice(0, 80));
           captured.push({ stream: url, kind: 'hls', referer: embedUrl, priority: 3 });
-        }
-        // Prioridad 2: cualquier otro m3u8
-        else {
+        } else {
           console.log('[extract] ✅ HLS:', url.slice(0, 100));
           captured.push({ stream: url, kind: 'hls', referer: embedUrl, priority: 2 });
         }
       }
 
-      // Capturar mp4
+      // Capturar MP4
       if (/\.mp4(\?|$)/i.test(url) && !/\.ts(\?|$)/i.test(url)) {
         console.log('[extract] ✅ MP4:', url.slice(0, 100));
         captured.push({ stream: url, kind: 'mp4', referer: embedUrl, priority: 2 });
@@ -207,7 +201,7 @@ async function _doExtract(embedUrl, opts = {}) {
 
     await new Promise(r => setTimeout(r, 2000));
 
-    // Auto-click play
+    // Auto-click en play
     if (captured.length === 0) {
       console.log('[extract] Auto-click...');
       const sels = ['button.play-button', '.play-button', '.vjs-big-play-button',
@@ -225,18 +219,15 @@ async function _doExtract(embedUrl, opts = {}) {
       }
     }
 
-    // Esperar un poco más para capturar el master después del ad
+    // Esperar master.m3u8 (prioridad 1) o timeout
     const start = Date.now();
     while (Date.now() - start < 18000) {
-      // Si ya tenemos un master (p1) → listo
       if (captured.some(c => c.priority === 1)) break;
-      // Si tenemos algún m3u8 sin ad, esperar un poco más
       if (captured.length > 0 && Date.now() - start > 8000) break;
       await new Promise(r => setTimeout(r, 500));
     }
 
     if (captured.length > 0) {
-      // Ordenar por prioridad (menor = mejor)
       captured.sort((a, b) => a.priority - b.priority);
       const best = captured[0];
       console.log('[extract] 🎬 Stream final (p' + best.priority + '):', best.kind, '->', best.stream.slice(0, 100));
@@ -262,4 +253,4 @@ module.exports = {
   default: extractM3u8FromEmbed,
 };
 
-console.log('[extract] v7 cargado — fix tik.1x2.space + master.m3u8 priority');
+console.log('[extract] v7 cargado — browser compartido + filtro ads + master priority');
