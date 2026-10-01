@@ -73,7 +73,7 @@ async function scrapeUnlimplay(tmdbId, type = 'movie') {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     });
 
-    // Interceptar requests para bloquear ads pesados
+    // Bloquear ads pesados
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       const u = req.url();
@@ -90,12 +90,11 @@ async function scrapeUnlimplay(tmdbId, type = 'movie') {
       console.warn('[unlimplay] Nav:', e.message);
     }
 
-    // Esperar 3 seg a que cargue el JS de Cloudflare (el "challenge")
+    // Esperar a que cargue el JS de Cloudflare
     await new Promise(r => setTimeout(r, 3000));
 
-    // Obtener el HTML final
+    // Obtener el HTML
     const html = await page.content();
-
     if (!html || typeof html !== 'string') return found;
 
     // ═══════════════════════════════════════════════════════════════════
@@ -122,7 +121,7 @@ async function scrapeUnlimplay(tmdbId, type = 'movie') {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Fallback: buscar URLs de servidores
+    // Fallback: buscar URLs de servidores con regex
     // ═══════════════════════════════════════════════════════════════════
     const serversRegex = /"(streamwish|filelions|voe|vidhide|doodstream|fastream|vidmoly|uqload|vidspeed|filemoon|streamtape|mixdrop|pelixplay)"\s*:\s*"(https?:\/\/[^"]+)"/gi;
     let m, count = 0;
