@@ -1,5 +1,9 @@
 // ══════════════════════════════════════════════════════════════════════════
-// puppeteer-extractor.js — v5 CON FILTRO DE ADS
+// puppeteer-extractor.js — v6
+//   • Browser compartido (no lanza Chrome por cada request)
+//   • Cola de extracción (1 a la vez, evita OOM)
+//   • Auto-reconnect si el browser crashea
+//   • Filtro de ads
 // ══════════════════════════════════════════════════════════════════════════
 
 const puppeteer = require('puppeteer-extra');
@@ -9,10 +13,10 @@ puppeteer.use(StealthPlugin());
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // ══════════════════════════════════════════════════════════════════════════
-// CDNs de anuncios conocidos — IGNORAR cuando aparezcan
+// FILTRO DE ADS
 // ══════════════════════════════════════════════════════════════════════════
 const AD_CDN_PATTERNS = [
-  /tik\.1x2\.space/i,           // ⚠️ CDN de ads de Xpass (27 seg de publicidad)
+  /tik\.1x2\.space/i,
   /adtng/i,
   /exoclick/i,
   /juicyads/i,
@@ -24,6 +28,9 @@ const AD_CDN_PATTERNS = [
   /dtscout/i,
   /dtscdn/i,
   /tynt\.com/i,
+  /mamshirt/i,
+  /tagivi/i,
+  /createlouisville/i,
 ];
 
 function isAdUrl(url) {
@@ -34,71 +41,128 @@ function isAdUrl(url) {
   return false;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// BROWSER COMPARTIDO — se lanza UNA vez y se reutiliza
+// ══════════════════════════════════════════════════════════════════════════
+let _browser = null;
+let _browserLaunching = null;
+
+async function getBrowser() {
+  // Si ya existe y está conectado, devolverlo
+  if (_browser && _browser.isConnected()) return _browser;
+
+  // Si está en proceso de lanzamiento, esperar
+  if (_browserLaunching) return _browserLaunching;
+
+  console.log('[extract] 🚀 Lanzando Chromium (una sola vez)...');
+
+  _browserLaunching = puppeteer.launch({
+    headless: 'new',
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--single-process',
+      '--no-zygote',
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-sync',
+      '--disable-translate',
+      '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+      '--mute-audio',
+      '--no-first-run',
+      '--window-size=1280,720',
+    ],
+    timeout: 60000,
+  });
+
+  try {
+    _browser = await _browserLaunching;
+    _browserLaunching = null;
+
+    console.log('[extract] ✅ Chromium listo (se reutilizará)');
+
+    // Si el browser se desconecta, resetear para relanzar en el siguiente request
+    _browser.on('disconnected', () => {
+      console.log('[extract] ⚠️ Chromium desconectado — se relanzará en el próximo request');
+      _browser = null;
+    });
+
+    return _browser;
+  } catch (e) {
+    _browserLaunching = null;
+    _browser = null;
+    throw e;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// COLA DE EXTRACCIÓN — 1 extracción a la vez
+// ══════════════════════════════════════════════════════════════════════════
+let _extractionQueue = Promise.resolve();
+
 async function extractM3u8FromEmbed(embedUrl, opts = {}) {
+  // Encolar la extracción para que no corran en paralelo
+  const result = _extractionQueue.then(() => _doExtract(embedUrl, opts).catch(e => {
+    console.error('[extract] Error en _doExtract:', e.message);
+    return null;
+  }));
+  // La cola avanza incluso si falla
+  _extractionQueue = result.then(() => {}).catch(() => {});
+  return result;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXTRACCIÓN REAL
+// ══════════════════════════════════════════════════════════════════════════
+async function _doExtract(embedUrl, opts = {}) {
   if (!embedUrl || !/^https?:\/\//i.test(embedUrl)) return null;
 
   const timeout = opts.timeout || 35000;
-  let browser = null;
+  let page = null;
   const captured = [];
 
   try {
     console.log('[extract] Iniciando para:', embedUrl);
 
-    browser = await puppeteer.launch({
-      headless: 'new',
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      args: [
-        '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-        '--single-process', '--no-zygote', '--disable-gpu',
-        '--disable-software-rasterizer', '--disable-extensions',
-        '--disable-background-networking', '--mute-audio',
-        '--window-size=1280,720',
-      ],
-      timeout: 20000,
-    });
+    const browser = await getBrowser();
+    page = await browser.newPage();
 
-    const page = await browser.newPage();
     await page.setUserAgent(UA);
     await page.setViewport({ width: 1280, height: 720 });
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' });
 
     await page.setRequestInterception(true);
 
-    // ═══════════════════════════════════════════════════════════════════
-    // INTERCEPTAR REQUESTS — FILTRO DE ADS + captura de m3u8 limpios
-    // ═══════════════════════════════════════════════════════════════════
     page.on('request', (req) => {
       const url = req.url();
 
-      // 1. Bloquear ads conocidos (nunca dejarlos pasar)
+      // Bloquear ads
       if (isAdUrl(url)) {
         console.log('[extract] 🚫 Ad bloqueado:', url.slice(0, 80));
         req.abort();
         return;
       }
 
-      // 2. Capturar m3u8 SOLO si NO es ad
+      // Capturar m3u8 limpio
       if (/\.m3u8(\?|$)/i.test(url) || /master\.txt(\?|$)/i.test(url)) {
-        if (!isAdUrl(url)) {
-          console.log('[extract] ✅ HLS limpio:', url.slice(0, 120));
-          captured.push({ stream: url, kind: 'hls', referer: embedUrl });
-        } else {
-          console.log('[extract] ⚠️ HLS de ad IGNORADO:', url.slice(0, 80));
-        }
+        console.log('[extract] ✅ HLS limpio:', url.slice(0, 120));
+        captured.push({ stream: url, kind: 'hls', referer: embedUrl });
       }
 
-      // 3. Capturar mp4 SOLO si NO es ad
+      // Capturar mp4 limpio
       if (/\.mp4(\?|$)/i.test(url) && !/\.ts(\?|$)/i.test(url)) {
-        if (!isAdUrl(url)) {
-          console.log('[extract] ✅ MP4 limpio:', url.slice(0, 120));
-          captured.push({ stream: url, kind: 'mp4', referer: embedUrl });
-        }
+        console.log('[extract] ✅ MP4 limpio:', url.slice(0, 120));
+        captured.push({ stream: url, kind: 'mp4', referer: embedUrl });
       }
 
       req.continue();
     });
 
-    // Captura de JSON con m3u8 (sin capturar ads)
     page.on('response', async (res) => {
       try {
         const url = res.url();
@@ -131,7 +195,7 @@ async function extractM3u8FromEmbed(embedUrl, opts = {}) {
 
     await new Promise(r => setTimeout(r, 2000));
 
-    // Auto-click en botón play
+    // Auto-click en play
     if (captured.length === 0) {
       console.log('[extract] Auto-click...');
       const sels = ['button.play-button', '.play-button', '.vjs-big-play-button',
@@ -149,7 +213,7 @@ async function extractM3u8FromEmbed(embedUrl, opts = {}) {
       }
     }
 
-    // Esperar hasta 15 seg a que llegue el m3u8 limpio
+    // Esperar a que llegue el m3u8 limpio
     const start = Date.now();
     while (captured.length === 0 && Date.now() - start < 15000) {
       await new Promise(r => setTimeout(r, 500));
@@ -187,10 +251,13 @@ async function extractM3u8FromEmbed(embedUrl, opts = {}) {
     return null;
 
   } catch (err) {
-    console.error('[extract] Error:', err.message);
+    console.error('[extract] Error general:', err.message);
     return null;
   } finally {
-    if (browser) { try { await browser.close(); } catch (_) {} }
+    // Cerrar SOLO la página (no el browser)
+    if (page) {
+      try { await page.close(); } catch (_) {}
+    }
   }
 }
 
@@ -202,4 +269,4 @@ module.exports = {
   default: extractM3u8FromEmbed,
 };
 
-console.log('[extract] v5 cargado — filtro de ads activado');
+console.log('[extract] v6 cargado — browser compartido + cola + filtro ads');
