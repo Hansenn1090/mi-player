@@ -1,5 +1,6 @@
 FROM node:20-bookworm-slim
 
+# Instalar Chromium y dependencias necesarias para Puppeteer
 RUN apt-get update && apt-get install -y \
     chromium \
     ca-certificates \
@@ -25,19 +26,22 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
+# Configurar Puppeteer para usar el Chromium del sistema
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV NODE_ENV=production
 
 WORKDIR /app
 
-COPY api/package*.json ./
+# Copiar SOLO el paquete.json de la carpeta API/ y instalar dependencias
+COPY API/paquete.json ./
 RUN npm install --omit=dev
 
-COPY api/ ./
-COPY player.html ./
+# Copiar todo el contenido de la carpeta API/ al contenedor
+COPY API/ ./
 
 EXPOSE 10000
 ENV PORT=10000
 
-CMD ["node", "server.js"]
+# Iniciar el servidor (el archivo se llama servidor.js)
+CMD ["node", "servidor.js"]
