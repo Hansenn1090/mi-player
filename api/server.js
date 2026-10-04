@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 10000;
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
 // ══════════════════════════════════════════════════════════════════════════
-// PROXY — Reescribe m3u8 y sirve .ts (CRÍTICO para reproducción)
+// PROXY — Reescribe m3u8 y sirve segmentos .ts
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/proxy', async (req, res) => {
   const targetUrl = req.query.url;
@@ -81,13 +81,14 @@ app.get('/api/proxy', async (req, res) => {
 app.get('/api/health', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
 // ══════════════════════════════════════════════════════════════════════════
-// IMPORTS (rutas correctas)
+// IMPORTS
 // ══════════════════════════════════════════════════════════════════════════
 const { searchAllProviders } = require('./providers/registry');
 const { getTmdbInfo } = require('./core/tmdb');
+const { extractStream } = require('./core/extractor');
 
 // ══════════════════════════════════════════════════════════════════════════
-// /api/servers — Devuelve los servidores del proveedor
+// /api/servers
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/servers', async (req, res) => {
   const { id, type } = req.query;
@@ -104,16 +105,17 @@ app.get('/api/servers', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// /api/extract — Extrae el HLS real desde el embed con Puppeteer
+// /api/extract — Extrae el HLS con axios + cheerio (SIN Puppeteer)
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/extract', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'Falta url' });
 
   try {
-    const { extractStream } = require('./core/puppeteer-extractor');
     const result = await extractStream(url);
-    if (!result || !result.stream) return res.status(404).json({ error: 'No extraído' });
+    if (!result || !result.stream) {
+      return res.status(404).json({ error: 'No extraído' });
+    }
     res.json(result);
   } catch (err) {
     console.error('[extract] Error:', err.message);
@@ -122,6 +124,6 @@ app.get('/api/extract', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// START (SIEMPRE AL FINAL)
+// START
 // ══════════════════════════════════════════════════════════════════════════
 app.listen(PORT, () => console.log(`🎬 Backend escuchando en puerto ${PORT}`));
