@@ -8,13 +8,6 @@ const cheerio = require('cheerio');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const BASE = 'https://pelispedia.casa';
 
-/**
- * Busca y extrae los servidores de una película/serie en Pelispedia
- * @param {string} title - Título de la película
- * @param {string} year - Año (opcional)
- * @param {string} type - 'movie' o 'tv'
- * @returns {Object} { latino: {name: url}, ... }
- */
 async function scrapePelispedia(title, year, type = 'movie') {
   const found = {};
   if (!title) return found;
@@ -43,7 +36,6 @@ async function scrapePelispedia(title, year, type = 'movie') {
     const $ = cheerio.load(searchHtml);
     const candidates = [];
 
-    // Buscar links de películas/series
     const linkSel = type === 'tv'
       ? 'a[href*="/series/"]'
       : 'a[href*="/peliculas/"]';
@@ -55,7 +47,6 @@ async function scrapePelispedia(title, year, type = 'movie') {
       candidates.push({ href, text });
     });
 
-    // Normalizar título
     const normalize = s => (s || '').toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9\s]/g, '')
@@ -65,14 +56,11 @@ async function scrapePelispedia(title, year, type = 'movie') {
     const titleWords = titleNorm.split(' ').filter(w => w.length > 2);
     const yearStr = String(year || '');
 
-    // Buscar la mejor coincidencia
     for (const c of candidates) {
       const candNorm = normalize(c.text);
       const matches = titleWords.filter(w => candNorm.includes(w));
-      
-      // Si coinciden al menos 2 palabras del título
+
       if (matches.length >= Math.min(2, titleWords.length)) {
-        // Y si hay year, debe coincidir
         if (!yearStr || c.text.includes(yearStr) || c.href.includes(yearStr)) {
           detailUrl = c.href;
           break;
@@ -80,7 +68,6 @@ async function scrapePelispedia(title, year, type = 'movie') {
       }
     }
 
-    // Fallback: primer resultado que contenga la primera palabra
     if (!detailUrl && candidates.length > 0 && titleWords.length > 0) {
       for (const c of candidates) {
         if (normalize(c.text).includes(titleWords[0])) {
@@ -90,7 +77,6 @@ async function scrapePelispedia(title, year, type = 'movie') {
       }
     }
 
-    // Normalizar URL relativa
     if (detailUrl && detailUrl.startsWith('/')) {
       detailUrl = BASE + detailUrl;
     }
@@ -138,7 +124,6 @@ async function scrapePelispedia(title, year, type = 'movie') {
 
     if (!embedRaw) return;
 
-    // Decodificar HTML entities
     const decoded = embedRaw
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
@@ -146,19 +131,16 @@ async function scrapePelispedia(title, year, type = 'movie') {
       .replace(/&#039;/g, "'")
       .replace(/&amp;/g, '&');
 
-    // Extraer el src del iframe
     const srcMatch = decoded.match(/src=["']([^"']+)["']/);
     if (!srcMatch) return;
 
     let embedUrl = srcMatch[1];
 
-    // Normalizar URL
     if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
     if (embedUrl.startsWith('/')) embedUrl = BASE + embedUrl;
 
     if (!embedUrl.startsWith('http')) return;
 
-    // Descartar ads/trackers
     if (/doubleclick|googlesyndication|google-analytics|youtube/i.test(embedUrl)) return;
 
     const name = detectServerName(embedUrl);
@@ -221,5 +203,12 @@ function detectServerName(url) {
   return 'Servidor';
 }
 
-module.exports = { scrapePelispedia };
+// ══════════════════════════════════════════════════════════════════════════
+// EXPORTS — Con alias "search" para que el registry lo encuentre
+// ══════════════════════════════════════════════════════════════════════════
+module.exports = {
+  scrapePelispedia,
+  search: async (title, year, tmdbId, type) => scrapePelispedia(title, year, type || 'movie')
+};
+
 console.log('[pelispedia] Provider cargado');
