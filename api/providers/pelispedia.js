@@ -4,9 +4,31 @@ const https = require('https');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-// ÚNICO dominio (el que funcionaba antes)
 const BASE = 'https://pelispedia.casa';
+
+// ══════════════════════════════════════════════════════════════════════════
+// Headers completos que imitan Chrome real (para pasar Cloudflare)
+// ══════════════════════════════════════════════════════════════════════════
+function getHeaders(extra = {}) {
+  return {
+    'User-Agent': UA,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Ch-Ua': '"Chromium";v="121", "Not A(Brand";v="99", "Google Chrome";v="121"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Connection': 'keep-alive',
+    ...extra,
+  };
+}
 
 async function scrapePelispedia(title, year, tmdbId, type) {
   const found = { latino: {}, subtitulado: {} };
@@ -16,17 +38,20 @@ async function scrapePelispedia(title, year, tmdbId, type) {
 
   try {
     const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
+    console.log('[pelispedia] URL búsqueda:', searchUrl);
+
     const { data: searchHtml } = await axios.get(searchUrl, {
       timeout: 15000,
       httpsAgent,
-      headers: {
-        'User-Agent': UA,
-        'Referer': BASE + '/',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-      },
+      headers: getHeaders({ 'Referer': BASE + '/' }),
+      maxRedirects: 5,
       validateStatus: s => s >= 200 && s < 400,
     });
+
+    // 🔍 DIAGNÓSTICO: ver qué está devolviendo el sitio
+    const preview = (searchHtml || '').substring(0, 500).replace(/\s+/g, ' ');
+    console.log('[pelispedia] HTML preview:', preview);
+    console.log('[pelispedia] HTML length:', searchHtml?.length || 0);
 
     const $ = cheerio.load(searchHtml);
     let detailUrl = null;
@@ -37,45 +62,60 @@ async function scrapePelispedia(title, year, tmdbId, type) {
 
     const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
 
+    // Buscar en TODOS los links (no solo /pelicula/)
     $('a').each((i, el) => {
       if (detailUrl) return;
       const href = $(el).attr('href') || '';
-      if (!href.includes('/pelicula/') && !href.includes('/serie/')) return;
+      if (!href.startsWith('http') && !href.startsWith('/')) return;
+      if (href === '/' || href === BASE || href === BASE + '/') return;
+      if (/category|tag|author|page|login|register|contact|facebook|twitter/i.test(href)) return;
+
       const text = normalize($(el).text());
       const matches = titleWords.filter(w => text.includes(w));
       if (matches.length >= Math.min(2, titleWords.length)) {
         detailUrl = href.startsWith('http') ? href : BASE + href;
+        console.log('[pelispedia] Match candidato:', detailUrl);
       }
     });
+
+    if (!detailUrl) {
+      // Fallback: cualquier link que contenga /pelicula/ o /serie/
+      $('a[href*="/pelicula/"], a[href*="/serie/"]').each((i, el) => {
+        if (detailUrl) return;
+        const href = $(el).attr('href') || '';
+        detailUrl = href.startsWith('http') ? href : BASE + href;
+      });
+    }
 
     if (!detailUrl) {
       console.log('[pelispedia] No se encontró detalle');
       return found;
     }
 
-    console.log('[pelispedia] Detalle:', detailUrl);
+    console.log('[pelispedia] Detalle final:', detailUrl);
 
     const { data: detailHtml } = await axios.get(detailUrl, {
       timeout: 15000,
       httpsAgent,
-      headers: {
-        'User-Agent': UA,
-        'Referer': BASE + '/',
-        'Accept': 'text/html,application/xhtml+xml,*/*',
-      },
+      headers: getHeaders({ 'Referer': searchUrl }),
       validateStatus: s => s >= 200 && s < 400,
     });
 
     const $d = cheerio.load(detailHtml);
 
-    $d('iframe, [data-src]').each((i, el) => {
-      const src = $d(el).attr('src') || $d(el).attr('data-src');
+    $d('iframe, [data-src], [data-pp-embed]').each((i, el) => {
+      let src = $d(el).attr('src') || $d(el).attr('data-src');
+      const dataPp = $d(el).attr('data-pp-embed');
+      if (dataPp && !src) {
+        const m = dataPp.match(/src=["']([^"']+)["']/);
+        if (m) src = m[1];
+      }
       if (!src) return;
       let embedUrl = src;
       if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
       if (embedUrl.startsWith('/')) embedUrl = BASE + embedUrl;
       if (!embedUrl.startsWith('http')) return;
-      if (/doubleclick|google|youtube|histats|yandex|tagivi/i.test(embedUrl)) return;
+      if (/doubleclick|google|youtube|histats|yandex|tagivi|whatsapp/i.test(embedUrl)) return;
 
       const name = detectServerName(embedUrl);
       if (!name) return;
@@ -105,4 +145,4 @@ module.exports = {
   search: async (title, year, tmdbId, type) => scrapePelispedia(title, year, tmdbId, type)
 };
 
-console.log('[pelispedia] Provider cargado (ligero, sin Puppeteer)');
+console.log('[pelispedia] Provider cargado (headers completos + diagnostico)');
