@@ -3,11 +3,9 @@ const cheerio = require('cheerio');
 const https = require('https');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
-
-// ⚠️ Ignorar errores de certificado SSL local (solo para evitar el bloqueo desde Render)
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-// Solo usar el dominio que funcionaba antes (.casa)
+// ÚNICO dominio (el que funcionaba antes)
 const BASE = 'https://pelispedia.casa';
 
 async function scrapePelispedia(title, year, tmdbId, type) {
