@@ -15,7 +15,7 @@
   #center-play{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;width:88px;height:88px;border-radius:50%;background:linear-gradient(145deg,#2563eb,#1d4ed8);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 40px rgba(37,99,235,.6);border:3px solid rgba(255,255,255,.2);transition:all .2s}
   #center-play:hover{transform:translate(-50%,-50%) scale(1.08)}
   #center-play.hidden{opacity:0;pointer-events:none}
-  #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;transition:opacity .3s}
+  #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;transition:opacity .3s}
   #chip.hls{background:rgba(34,197,94,.25);border-color:rgba(34,197,94,.5);color:#bbf7d0}
   #chip.hidden{opacity:0}
   #btn-servers{position:fixed;top:14px;right:14px;z-index:40;padding:8px 14px;border-radius:10px;background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);display:flex;align-items:center;gap:6px}
@@ -151,7 +151,6 @@ function setChip(k){
   els.chip.textContent = '● HLS nativo';
 }
 
-// ═══ Extraer HLS desde cada servidor ═══
 async function extractFromBackend(embedUrl){
   try {
     const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
@@ -170,25 +169,20 @@ async function extractAllServers(srvs){
 
     showLoading('Extrayendo ' + cap(name) + '…');
 
-    // Si la URL ya es un m3u8 directo (devuelto por pelixplay.js)
     if (url.includes('.m3u8') || url.includes('master.txt')) {
       extracted[name] = { url, stream:url, kind:'hls', referer:url };
       continue;
     }
 
-    // Si es un embed normal, extraer con Puppeteer
     const res = await extractFromBackend(url);
     if (res && res.stream){
       extracted[name] = { url, stream:res.stream, kind:res.kind, referer:res.referer };
-    } else {
-      console.log(`[Filtro] No se pudo extraer HLS de ${name} → se ignora`);
     }
   }
   hideLoading();
   _extracted = extracted;
 }
 
-// ═══ Montar HLS ═══
 function mountHls(url){
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
