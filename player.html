@@ -123,8 +123,16 @@
 
 <script>
 /* ══════════════════════════════════════════════════════════════════════════
-   Estado
+   ⚠️⚠️ CAMBIA ESTA URL POR LA QUE TE DIO RENDER ⚠️⚠️
+   Ejemplo: https://mi-jugador-api.onrender.com
    ══════════════════════════════════════════════════════════════════════════ */
+const API_BASE = 'https://mi-jugador-api.onrender.com';
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ✅ LISTA BLANCA: Solo estos servidores se procesarán y mostrarán
+   ══════════════════════════════════════════════════════════════════════════ */
+const ALLOWED_PROVIDERS = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
+
 const state = {
   isPlaying:false, currentTime:0, duration:0,
   isSeeking:false, currentLang:null, currentSrv:null, currentKind:null,
@@ -206,11 +214,11 @@ function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.re
 function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Extracción secuencial
+   Extracción secuencial (con API_BASE)
    ══════════════════════════════════════════════════════════════════════════ */
 async function extractFromBackend(embedUrl){
   try {
-    const r = await fetch('/api/extract?url=' + encodeURIComponent(embedUrl));
+    const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
     if (!r.ok) return null;
     const data = await r.json();
     if (data.error || !data.stream) return null;
@@ -224,6 +232,14 @@ async function extractAllServers(srvs){
   for (let i = 0; i < entries.length; i++){
     const name = entries[i][0];
     const url = entries[i][1];
+
+    /* ✅ FILTRO: Ignorar servidores que no estén en la lista blanca */
+    const baseName = normKey(trueBase(name));
+    if (!ALLOWED_PROVIDERS.includes(baseName)) {
+      console.log(`[Filtro] Ignorando servidor no deseado: ${name}`);
+      continue;
+    }
+
     const byUrl = detectByUrl(url);
     if (byUrl){
       extracted[name] = { url, stream:url, kind:byUrl, referer:url };
@@ -257,7 +273,7 @@ function attachVideo(vid){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   HLS con proxy
+   HLS con proxy (API_BASE)
    ══════════════════════════════════════════════════════════════════════════ */
 function mountHls(url, referer){
   state.currentKind = 'hls';
@@ -270,9 +286,8 @@ function mountHls(url, referer){
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideo(vid);
 
-  // ⚠️ CLAVE: usar proxy para m3u8 (evita CORS y envía Referer)
   const ref = referer || url;
-  const proxyUrl = '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
 
   console.log('[HLS] Cargando vía proxy:', proxyUrl.slice(0, 120));
 
@@ -312,7 +327,7 @@ function mountHls(url, referer){
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   MP4 con proxy
+   MP4 con proxy (API_BASE)
    ══════════════════════════════════════════════════════════════════════════ */
 function mountMp4(url, referer){
   state.currentKind = 'mp4';
@@ -326,7 +341,7 @@ function mountMp4(url, referer){
   attachVideo(vid);
 
   const ref = referer || url;
-  const proxyUrl = '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
   vid.src = proxyUrl; vid.load();
   vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
   vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
@@ -384,7 +399,7 @@ function tryNextServer(){
 }
 function autoLoadBest(){
   const names = Object.keys(_extracted);
-  if (!names.length) return;
+  if (!names.length){ showToast('Sin servidores válidos'); return; }
   const prio = { hls:0, mp4:1, iframe:2 };
   names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
   loadServer(names[0]);
@@ -482,7 +497,7 @@ document.addEventListener('click', e => {
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Init
+   Init (con API_BASE)
    ══════════════════════════════════════════════════════════════════════════ */
 function getQueryParam(name){ return new URLSearchParams(location.search).get(name); }
 async function init(){
@@ -490,7 +505,7 @@ async function init(){
   const type = getQueryParam('type') || 'movie';
   showLoading('Buscando servidores…');
   try {
-    const r = await fetch('/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
+    const r = await fetch(API_BASE + '/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     if (!data.servers || !Object.keys(data.servers).length){
