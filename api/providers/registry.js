@@ -1,7 +1,7 @@
-const pelixplay = require('./pelixplay');
+const pelisPedia = require('./pelispedia');
 
 const PROVIDERS = [
-  { name: 'pelixplay', module: pelixplay, priority: 1 },
+  { name: 'pelispedia', module: pelisPedia, priority: 1 },
 ];
 
 const ALLOWED_SERVERS = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
