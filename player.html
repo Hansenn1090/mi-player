@@ -9,23 +9,25 @@
   html,body{margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;height:100%}
   #stage{position:fixed;inset:0;background:#000;z-index:1}
   #stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
-  #backdrop{position:fixed;inset:0;z-index:0;background-size:cover;background-position:center top;filter:brightness(.4) blur(2px)}
+  #backdrop{position:fixed;inset:0;z-index:0;background-size:cover;background-position:center top;filter:brightness(.4) blur(2px);transition:opacity .6s}
   #backdrop::before{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.85) 100%)}
   #backdrop.hidden{opacity:0}
-  #center-play{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;width:88px;height:88px;border-radius:50%;background:linear-gradient(145deg,#2563eb,#1d4ed8);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 40px rgba(37,99,235,.6);border:3px solid rgba(255,255,255,.2);transition:all .2s}
+  #center-play{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;width:88px;height:88px;border-radius:50%;background:linear-gradient(145deg,#2563eb,#1d4ed8);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 40px rgba(37,99,235,.6);border:3px solid rgba(255,255,255,.2);transition:all .2s;opacity:1}
   #center-play:hover{transform:translate(-50%,-50%) scale(1.08)}
   #center-play.hidden{opacity:0;pointer-events:none}
-  #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;transition:opacity .3s}
+  #center-play svg{margin-left:5px}
+  #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;pointer-events:none;transition:opacity .3s}
   #chip.hls{background:rgba(34,197,94,.25);border-color:rgba(34,197,94,.5);color:#bbf7d0}
   #chip.hidden{opacity:0}
   #btn-servers{position:fixed;top:14px;right:14px;z-index:40;padding:8px 14px;border-radius:10px;background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);display:flex;align-items:center;gap:6px}
-  #panel-servers{position:fixed;top:60px;right:14px;z-index:40;width:300px;max-height:70vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto}
+  #btn-servers:hover{background:rgba(40,44,60,.95)}
+  #panel-servers{position:fixed;top:60px;right:14px;z-index:40;width:300px;max-height:70vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
   #panel-servers.on{display:block}
   #panel-servers h3{font-size:11px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px 0}
-  .srv-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 12px;margin-bottom:6px;border-radius:8px;background:rgba(43,50,63,.6);border:1px solid rgba(255,255,255,.08);color:#d1d5db;font-size:13px;font-weight:500;cursor:pointer;text-align:left}
+  .srv-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 12px;margin-bottom:6px;border-radius:8px;background:rgba(43,50,63,.6);border:1px solid rgba(255,255,255,.08);color:#d1d5db;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;text-align:left}
   .srv-btn:hover{background:rgba(60,70,88,.9);color:#fff}
   .srv-btn.active{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
-  .srv-kind{font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px}
+  .srv-kind{font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;line-height:1}
   .kind-hls{background:rgba(34,197,94,.25);color:#86efac;border:1px solid rgba(34,197,94,.5)}
   #hud{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:24px 20px 16px;background:linear-gradient(to top,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 60%,transparent 100%);transition:opacity .35s,transform .35s}
   #hud.hidden{opacity:0;pointer-events:none;transform:translateY(20px)}
@@ -34,24 +36,35 @@
   #poster-box img{width:100%;height:100%;object-fit:cover;display:block}
   #info{flex:1;min-width:0}
   #title{font-size:18px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #meta{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px}
-  #controls{display:flex;align-items:center;gap:8px}
-  .ctrl-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.75);font-size:12px;font-weight:600;cursor:pointer}
+  #meta{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #controls{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .ctrl-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.75);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
   .ctrl-btn:hover{background:rgba(255,255,255,.12);color:#fff}
   .ctrl-btn.play{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
-  .key-badge{background:rgba(255,255,255,.85);color:#000;font-size:9px;font-weight:800;border-radius:3px;padding:2px 5px}
+  .ctrl-btn.play:hover{background:rgba(37,99,235,.4);color:#fff}
+  .key-badge{background:rgba(255,255,255,.85);color:#000;font-size:9px;font-weight:800;border-radius:3px;padding:2px 5px;line-height:1}
   #scrubber-row{display:flex;align-items:center;gap:12px}
-  #time-cur,#time-dur{font-size:12px;font-family:monospace;color:#fff;min-width:48px;text-align:center}
+  #time-cur,#time-dur{font-size:12px;font-family:ui-monospace,monospace;color:#fff;min-width:48px;text-align:center}
+  #time-dur{color:rgba(255,255,255,.6)}
   #scrubber-wrap{flex:1;position:relative;height:20px;display:flex;align-items:center}
   #scrubber-track{width:100%;height:4px;background:rgba(255,255,255,.15);border-radius:2px;overflow:hidden;position:relative}
-  #scrubber-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:2px}
+  #scrubber-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:2px;transition:width .1s}
   #scrubber{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;-webkit-appearance:none;background:transparent}
-  #loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;display:none;align-items:center;gap:10px;padding:14px 22px;border-radius:14px;background:rgba(0,0,0,.9);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:13px}
+  #scrubber::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:#00d2ff;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px rgba(0,210,255,.8);cursor:pointer}
+  #loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;display:none;align-items:center;gap:10px;padding:14px 22px;border-radius:14px;background:rgba(0,0,0,.9);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:13px;backdrop-filter:blur(12px)}
   #loading.on{display:flex}
   #loading .sp{width:16px;height:16px;border:2px solid rgba(96,165,250,.2);border-top-color:#60a5fa;border-radius:50%;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
-  #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:60;padding:10px 18px;border-radius:10px;background:rgba(10,11,18,.95);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:12px;opacity:0;transition:all .3s;pointer-events:none}
+  #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:60;padding:10px 18px;border-radius:10px;background:rgba(10,11,18,.95);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:12px;font-weight:500;backdrop-filter:blur(12px);opacity:0;transition:all .3s;pointer-events:none;max-width:85vw;text-align:center}
   #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  #show-hud{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:32;padding:5px 16px;border-radius:0 0 10px 10px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.1);border-top:none;color:rgba(255,255,255,.7);font-size:11px;font-weight:600;cursor:pointer;display:none;backdrop-filter:blur(10px)}
+  #show-hud.on{display:block}
+  @media(max-width:600px){
+    #hud-row{flex-wrap:wrap}
+    #controls{width:100%;justify-content:flex-end;margin-top:8px}
+    #center-play{width:70px;height:70px}
+    #panel-servers{width:calc(100vw - 28px);right:14px;left:14px}
+  }
 </style>
 </head>
 <body>
@@ -60,7 +73,11 @@
 <div id="stage"></div>
 <div id="chip" class="hidden">—</div>
 
-<button id="btn-servers">Servidores</button>
+<button id="btn-servers">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="6" rx="1"/><rect x="3" y="10" width="18" height="6" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
+  Servidores
+</button>
+
 <div id="panel-servers">
   <h3>Servidores disponibles</h3>
   <div id="servers-list"></div>
@@ -96,28 +113,37 @@
   </div>
 </div>
 
+<button id="show-hud">▲ Mostrar controles</button>
+
 <script>
 // ⚠️ CAMBIA ESTA URL POR LA DE TU BACKEND EN RENDER
 const API_BASE = 'https://mi-player-api.onrender.com';
 
 const ALLOWED_PROVIDERS = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
 
-const state = { isPlaying:false, currentTime:0, duration:0, isSeeking:false, currentSrv:null };
+const state = {
+  isPlaying:false, currentTime:0, duration:0,
+  isSeeking:false, currentSrv:null,
+};
 let _extracted = {};
 let _currentVideoEl = null, _currentHls = null;
+let _idleTimer = null;
 
 const $ = id => document.getElementById(id);
 const els = {
   stage:$('stage'), backdrop:$('backdrop'), chip:$('chip'),
   panelServers:$('panel-servers'), serversList:$('servers-list'),
   centerPlay:$('center-play'), loading:$('loading'), loadingText:$('loading-text'),
-  toast:$('toast'), hud:$('hud'), posterImg:$('poster-img'), title:$('title'), meta:$('meta'),
+  toast:$('toast'), hud:$('hud'), showHud:$('show-hud'),
+  posterImg:$('poster-img'), title:$('title'), meta:$('meta'),
   btnPlay:$('btn-play'), btnRew:$('btn-rew'), btnFwd:$('btn-fwd'),
-  timeCur:$('time-cur'), timeDur:$('time-dur'), scrubber:$('scrubber'), scrubberFill:$('scrubber-fill'),
+  timeCur:$('time-cur'), timeDur:$('time-dur'),
+  scrubber:$('scrubber'), scrubberFill:$('scrubber-fill'),
 };
 
 const PROVIDER_DISPLAY = { streamwish:'StreamWish', vidmoly:'Vidmoly', filelions:'FileLions', vidhide:'VidHide' };
 
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
 function normKey(n){
   let b = (n||'').toLowerCase().replace(/[\s_-]+\d+$/,'');
@@ -133,7 +159,8 @@ function trueBase(n){
 
 function showToast(m, d){
   d = d || 3000;
-  els.toast.textContent = m; els.toast.classList.add('on');
+  els.toast.textContent = m;
+  els.toast.classList.add('on');
   clearTimeout(showToast._t);
   showToast._t = setTimeout(() => els.toast.classList.remove('on'), d);
 }
@@ -147,42 +174,35 @@ function fmt(s){
 }
 function setChip(k){
   if (!k){ els.chip.classList.add('hidden'); return; }
-  els.chip.className = k; els.chip.classList.remove('hidden');
+  els.chip.className = k;
+  els.chip.classList.remove('hidden');
   els.chip.textContent = '● HLS nativo';
 }
+function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.remove('on'); }
+function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
 
-async function extractFromBackend(embedUrl){
+// ══════════════════════════════════════════════════════════════════════════
+// EXTRAER HLS BAJO DEMANDA (1 Puppeteer a la vez en el backend)
+// ══════════════════════════════════════════════════════════════════════════
+async function extractOneServer(name, embedUrl){
+  showLoading('Extrayendo ' + cap(name) + '…');
   try {
     const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
-    if (!r.ok) return null;
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    if (data.error || !data.stream) return null;
-    return { stream:data.stream, kind:data.kind || 'hls', referer:data.referer };
-  } catch(e){ return null; }
-}
-
-async function extractAllServers(srvs){
-  const extracted = {};
-  for (const [name, url] of Object.entries(srvs)){
-    const baseName = normKey(trueBase(name));
-    if (!ALLOWED_PROVIDERS.includes(baseName)) continue;
-
-    showLoading('Extrayendo ' + cap(name) + '…');
-
-    if (url.includes('.m3u8') || url.includes('master.txt')) {
-      extracted[name] = { url, stream:url, kind:'hls', referer:url };
-      continue;
-    }
-
-    const res = await extractFromBackend(url);
-    if (res && res.stream){
-      extracted[name] = { url, stream:res.stream, kind:res.kind, referer:res.referer };
-    }
+    if (!data.stream) throw new Error('Sin stream');
+    return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer };
+  } catch(e) {
+    console.warn(`[extract] ${name}:`, e.message);
+    return null;
+  } finally {
+    hideLoading();
   }
-  hideLoading();
-  _extracted = extracted;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// MONTAR HLS
+// ══════════════════════════════════════════════════════════════════════════
 function mountHls(url){
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
@@ -190,6 +210,7 @@ function mountHls(url){
   vid.playsInline=true; vid.preload='metadata'; vid.controls=false;
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
+
   if (_currentVideoEl) _currentVideoEl.parentElement?.remove();
   if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} }
   _currentVideoEl = vid;
@@ -211,20 +232,41 @@ function mountHls(url){
     hls.on(Hls.Events.ERROR, (_, d) => {
       if (d.fatal){ hideLoading(); tryNextServer(); }
     });
+  } else if (vid.canPlayType('application/vnd.apple.mpegurl')){
+    vid.src = proxyUrl; vid.load();
+    vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
   }
 }
 
-function loadServer(name){
+// ══════════════════════════════════════════════════════════════════════════
+// CARGAR SERVIDOR (extrae solo cuando el usuario hace clic)
+// ══════════════════════════════════════════════════════════════════════════
+async function loadServer(name){
   const srv = _extracted[name];
   if (!srv) return;
   state.currentSrv = name;
   showLoading('Cargando ' + (PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name)) + '…');
   setChip('hls');
+
   if (_currentVideoEl){ _currentVideoEl.parentElement?.remove(); _currentVideoEl = null; }
   if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
   els.centerPlay.classList.add('hidden');
   els.backdrop.classList.add('hidden');
-  mountHls(srv.stream);
+
+  let streamUrl = srv.stream;
+  if (!streamUrl) {
+    const extracted = await extractOneServer(name, srv.url);
+    if (!extracted) {
+      showToast('No se pudo extraer ' + name + '. Probando siguiente...');
+      tryNextServer();
+      return;
+    }
+    srv.stream = extracted.stream;
+    srv.kind = extracted.kind;
+    srv.referer = extracted.referer;
+    streamUrl = extracted.stream;
+  }
+  mountHls(streamUrl);
   renderServersList();
 }
 
@@ -233,15 +275,15 @@ function tryNextServer(){
   if (names.length < 2) return;
   const idx = names.indexOf(state.currentSrv);
   const next = names[idx + 1] || names[0];
-  if (next && next !== state.currentSrv){
-    showToast('Servidor falló. Probando ' + next);
+  if (next && next !== state.currentSrv) {
+    console.log('[Player] Fallback → ' + next);
     setTimeout(() => loadServer(next), 800);
   }
 }
 
 function autoLoadBest(){
   const names = Object.keys(_extracted);
-  if (!names.length){ showToast('Sin servidores HLS disponibles'); return; }
+  if (!names.length){ showToast('Sin servidores disponibles'); return; }
   loadServer(names[0]);
 }
 
@@ -251,14 +293,19 @@ function renderServersList(){
     const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
     const btn = document.createElement('button');
     btn.className = 'srv-btn' + (name === state.currentSrv ? ' active' : '');
-    btn.innerHTML = '<span>' + disp + '</span><span class="srv-kind kind-hls">HLS</span>';
+    btn.innerHTML = '<span>' + esc(disp) + '</span><span class="srv-kind kind-hls">HLS</span>';
     btn.onclick = () => { loadServer(name); els.panelServers.classList.remove('on'); };
     els.serversList.appendChild(btn);
   });
 }
 
 function updateScrubber(){
-  if (state.duration <= 0){ els.scrubberFill.style.width='0%'; els.timeCur.textContent='00:00'; return; }
+  if (state.duration <= 0){
+    els.scrubber.value = 0; els.scrubberFill.style.width = '0%';
+    els.timeCur.textContent = fmt(state.currentTime);
+    els.timeDur.textContent = '00:00';
+    return;
+  }
   const pct = Math.min(Math.max((state.currentTime/state.duration)*100, 0), 100);
   if (!state.isSeeking) els.scrubber.value = pct;
   els.scrubberFill.style.width = pct + '%';
@@ -266,16 +313,28 @@ function updateScrubber(){
   els.timeDur.textContent = fmt(state.duration);
 }
 
-els.btnPlay.onclick = () => {
+function togglePlay(){
   if (_currentVideoEl){
     if (_currentVideoEl.paused) _currentVideoEl.play().catch(()=>{});
     else _currentVideoEl.pause();
   }
+}
+function rewind10(){
+  if (_currentVideoEl) _currentVideoEl.currentTime = Math.max(0, _currentVideoEl.currentTime - 10);
+}
+function forward10(){
+  if (_currentVideoEl) _currentVideoEl.currentTime = Math.min(_currentVideoEl.duration||Infinity, _currentVideoEl.currentTime + 10);
+}
+
+els.btnPlay.onclick = togglePlay;
+els.btnRew.onclick = rewind10;
+els.btnFwd.onclick = forward10;
+els.centerPlay.onclick = () => {
+  if (!state.currentSrv) autoLoadBest();
+  else togglePlay();
 };
-els.btnRew.onclick = () => { if (_currentVideoEl) _currentVideoEl.currentTime = Math.max(0, _currentVideoEl.currentTime - 10); };
-els.btnFwd.onclick = () => { if (_currentVideoEl) _currentVideoEl.currentTime = Math.min(_currentVideoEl.duration||Infinity, _currentVideoEl.currentTime + 10); };
-els.centerPlay.onclick = () => { if (!state.currentSrv) autoLoadBest(); else els.btnPlay.click(); };
 $('btn-servers').onclick = (e) => { e.stopPropagation(); els.panelServers.classList.toggle('on'); };
+els.showHud.onclick = showHUD;
 
 els.scrubber.addEventListener('input', e => {
   const pct = parseFloat(e.target.value);
@@ -292,12 +351,23 @@ els.scrubber.addEventListener('change', e => {
 els.scrubber.addEventListener('pointerdown', () => state.isSeeking = true);
 els.scrubber.addEventListener('pointerup', () => state.isSeeking = false);
 
+function resetIdle(){
+  showHUD();
+  clearTimeout(_idleTimer);
+  _idleTimer = setTimeout(() => { if (state.isPlaying) hideHUD(); }, 4000);
+}
+window.addEventListener('mousemove', resetIdle);
+window.addEventListener('touchstart', resetIdle);
+
 document.addEventListener('click', e => {
   if (!els.panelServers.contains(e.target) && e.target.id !== 'btn-servers') {
     els.panelServers.classList.remove('on');
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// INIT — Solo llama a /api/servers (ligero, sin Puppeteer)
+// ══════════════════════════════════════════════════════════════════════════
 async function init(){
   const id = new URLSearchParams(location.search).get('id') || '315635';
   const type = new URLSearchParams(location.search).get('type') || 'movie';
@@ -307,28 +377,52 @@ async function init(){
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     if (!data.servers || !Object.keys(data.servers.latino || {}).length){
-      showToast('Sin servidores disponibles'); hideLoading(); return;
+      showToast('Sin servidores disponibles');
+      hideLoading();
+      return;
     }
     if (data.meta){
       if (data.meta.title) els.title.textContent = data.meta.title;
       const parts = [];
       if (data.meta.year) parts.push(data.meta.year);
-      if (data.meta.genres?.length) parts.push(data.meta.genres.slice(0,2).join(' / '));
-      if (data.meta.runtime) parts.push(data.meta.runtime + 'm');
+      if (data.meta.genres && data.meta.genres.length) parts.push(data.meta.genres.slice(0,2).join(' / '));
+      if (data.meta.runtime){
+        const h = Math.floor(data.meta.runtime/60), m = data.meta.runtime%60;
+        parts.push(h>0?h+'h '+m+'m':m+'m');
+      }
       if (data.meta.voteAverage) parts.push('⭐ ' + data.meta.voteAverage);
-      els.meta.textContent = parts.join(' • ');
+      els.meta.textContent = parts.join(' • ') || 'Sin información';
       if (data.meta.backdrop) els.backdrop.style.backgroundImage = 'url(' + data.meta.backdrop + ')';
       if (data.meta.poster) els.posterImg.src = data.meta.poster;
-      document.title = (data.meta.title || 'UnLim Play') + ' — UnLim Play';
+      if (data.meta.title) document.title = data.meta.title + ' — UnLim Play';
     }
-    await extractAllServers(data.servers.latino);
+
+    // Guardar URLs SIN extraer todavía (extracción bajo demanda)
+    _extracted = {};
+    for (const [name, url] of Object.entries(data.servers.latino)){
+      const baseName = normKey(trueBase(name));
+      if (!ALLOWED_PROVIDERS.includes(baseName)) continue;
+      _extracted[name] = { url, stream: null, kind: 'pending', referer: url };
+    }
+
     renderServersList();
-    autoLoadBest();
+    hideLoading();
+
+    // Mostrar botón de play para que el usuario decida
+    if (Object.keys(_extracted).length > 0){
+      els.centerPlay.classList.remove('hidden');
+    } else {
+      showToast('Sin servidores HLS disponibles');
+    }
+    resetIdle();
   } catch(e){
-    console.error(e); showToast('Error: ' + e.message); hideLoading();
+    console.error('[Init]', e);
+    showToast('Error: ' + e.message);
+    hideLoading();
   }
 }
 init();
 </script>
+
 </body>
 </html>
