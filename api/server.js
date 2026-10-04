@@ -9,9 +9,7 @@ const PORT = process.env.PORT || 10000;
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
-// ══════════════════════════════════════════════════════════════════════════
-// PROXY (CRÍTICO para que el video reproduzca sin errores CORS)
-// ══════════════════════════════════════════════════════════════════════════
+// ═══ PROXY (CRÍTICO para reproducir sin errores CORS) ═══
 app.get('/api/proxy', async (req, res) => {
   const targetUrl = req.query.url;
   const referer = req.query.referer || targetUrl;
@@ -75,20 +73,14 @@ app.get('/api/proxy', async (req, res) => {
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
-// HEALTH
-// ══════════════════════════════════════════════════════════════════════════
+// ═══ HEALTH ═══
 app.get('/api/health', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
-// ══════════════════════════════════════════════════════════════════════════
-// IMPORTS (rutas correctas: "providers", NO "proveedores")
-// ══════════════════════════════════════════════════════════════════════════
+// ═══ IMPORTS (rutas correctas según tu repo) ═══
 const { searchAllProviders } = require('./providers/registry');
 const { getTmdbInfo } = require('./core/tmdb');
 
-// ══════════════════════════════════════════════════════════════════════════
-// /api/servers — Busca en todos los providers y devuelve los servidores
-// ══════════════════════════════════════════════════════════════════════════
+// ═══ /api/servers ═══
 app.get('/api/servers', async (req, res) => {
   const { id, type } = req.query;
   if (!id) return res.status(400).json({ error: 'Falta id' });
@@ -103,9 +95,7 @@ app.get('/api/servers', async (req, res) => {
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
-// /api/extract — Extrae el .m3u8 real con Puppeteer
-// ══════════════════════════════════════════════════════════════════════════
+// ═══ /api/extract ═══
 app.get('/api/extract', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'Falta url' });
@@ -121,5 +111,5 @@ app.get('/api/extract', async (req, res) => {
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════
+// ═══ START ═══
 app.listen(PORT, () => console.log(`🎬 Backend escuchando en puerto ${PORT}`));
