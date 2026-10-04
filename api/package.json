@@ -1,11 +1,11 @@
 {
   "name": "mi-player-api",
   "version": "1.0.0",
-  "description": "API para mi-player con extracción de StreamWish, Vidmoly y FileLions",
-  "main": "servidor.js",
+  "description": "API para mi-player con extraccion ligera sin Puppeteer",
+  "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node servidor.js"
+    "start": "node server.js"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -16,9 +16,6 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
-    "node-fetch": "^3.3.2",
-    "puppeteer": "^22.15.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "node-fetch": "^3.3.2"
   }
 }
