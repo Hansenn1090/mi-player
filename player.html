@@ -122,6 +122,9 @@
 <button id="show-hud">▲ Mostrar controles</button>
 
 <script>
+// ⚠️ IMPORTANTE: Aquí defines la URL de tu Backend en Render
+const API_BASE = 'https://mi-player-api.onrender.com';
+
 const state = {
   isPlaying:false, currentTime:0, duration:0,
   isSeeking:false, currentLang:null, currentSrv:null, currentKind:null,
@@ -199,9 +202,14 @@ function setChip(k){
 function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.remove('on'); }
 function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
 
+// ══════════════════════════════════════════════════════════════════════════
+// CONEXIÓN CON EL BACKEND DE RENDER
+// ══════════════════════════════════════════════════════════════════════════
+
 async function extractFromBackend(embedUrl){
   try {
-    const r = await fetch('/api/extract?url=' + encodeURIComponent(embedUrl));
+    // ✅ Usando API_BASE
+    const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
     if (!r.ok) return null;
     const data = await r.json();
     if (data.error || !data.stream) return null;
@@ -243,6 +251,25 @@ function attachVideo(vid){
   vid.addEventListener('play',  () => { state.isPlaying=true; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Pausar'; });
   vid.addEventListener('pause', () => { state.isPlaying=false; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Reproducir'; });
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// FUNCIÓN DE FALLBACK (SALTAR AL SIGUIENTE SERVIDOR)
+// ══════════════════════════════════════════════════════════════════════════
+function tryNextServer(){
+  const names = Object.keys(_extracted);
+  if (names.length < 2) return;
+  const idx = names.indexOf(state.currentSrv);
+  const next = names[idx + 1] || names[0];
+  if (next && next !== state.currentSrv) {
+    console.log('[Player] Fallback → ' + next);
+    showToast('Servidor falló. Probando ' + next + '...');
+    setTimeout(() => loadServer(next), 1000);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MOUNT HLS — Vía PROXY para evitar CORS y enviar Referer
+// ══════════════════════════════════════════════════════════════════════════
 function mountHls(url){
   state.currentKind = 'hls';
   const wrap = document.createElement('div');
@@ -253,16 +280,45 @@ function mountHls(url){
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideo(vid);
+
+  // ✅ Usando Proxy de Render para HLS
+  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(url);
+  console.log('[HLS] Cargando vía proxy:', proxyUrl.slice(0, 120));
+
   if (typeof Hls !== 'undefined' && Hls.isSupported()){
-    const hls = new Hls({ maxBufferLength:30, startLevel:-1 });
+    const hls = new Hls({ maxBufferLength: 30, startLevel: -1, enableWorker: true });
     _currentHls = hls;
-    hls.loadSource(url); hls.attachMedia(vid);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => { hideLoading(); vid.play().catch(()=>{}); });
+    hls.loadSource(proxyUrl);
+    hls.attachMedia(vid);
+
+    const loadTimeout = setTimeout(() => {
+      console.warn('[HLS] Timeout cargando');
+      showToast('El stream tarda. Probando otro servidor…');
+      hideLoading();
+      tryNextServer();
+    }, 20000);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      clearTimeout(loadTimeout);
+      hideLoading();
+      vid.play().catch(()=>{});
+    });
+
+    hls.on(Hls.Events.ERROR, (_, d) => {
+      if (d.fatal){
+        clearTimeout(loadTimeout);
+        console.warn('[HLS] Error fatal:', d.details);
+        hideLoading();
+        tryNextServer();
+      }
+    });
   } else if (vid.canPlayType('application/vnd.apple.mpegurl')){
-    vid.src = url; vid.load();
+    vid.src = proxyUrl; vid.load();
     vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
+    vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
   }
 }
+
 function mountMp4(url){
   state.currentKind = 'mp4';
   const wrap = document.createElement('div');
@@ -273,9 +329,14 @@ function mountMp4(url){
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideo(vid);
-  vid.src = url; vid.load();
+  
+  // ✅ Usando Proxy de Render para MP4
+  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(url);
+  vid.src = proxyUrl; vid.load();
   vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
+  vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
 }
+
 function mountIframe(url){
   state.currentKind = 'iframe';
   const iframe = document.createElement('iframe');
@@ -402,11 +463,12 @@ document.addEventListener('click', e => {
 
 function getQueryParam(name){ return new URLSearchParams(location.search).get(name); }
 async function init(){
-  const id = getQueryParam('id') || '293660';
+  const id = getQueryParam('id') || '293660'; // ID por defecto (Deadpool)
   const type = getQueryParam('type') || 'movie';
   showLoading('Buscando servidores…');
   try {
-    const r = await fetch('/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
+    // ✅ Usando API_BASE
+    const r = await fetch(API_BASE + '/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     if (!data.servers || !Object.keys(data.servers).length){
