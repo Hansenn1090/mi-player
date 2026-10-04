@@ -4,37 +4,29 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, user-scalable=no" name="viewport"/>
 <title>UnLim Play</title>
-<script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
 <style>
   html,body{margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;height:100%}
   #stage{position:fixed;inset:0;background:#000;z-index:1}
-  #stage iframe.ulp-iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:5;pointer-events:auto;background:#000}
   #stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
-  #backdrop{position:fixed;inset:0;z-index:0;background-size:cover;background-position:center top;filter:brightness(.4) blur(2px);transition:opacity .6s}
+  #backdrop{position:fixed;inset:0;z-index:0;background-size:cover;background-position:center top;filter:brightness(.4) blur(2px)}
   #backdrop::before{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.85) 100%)}
   #backdrop.hidden{opacity:0}
-  #center-play{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;width:88px;height:88px;border-radius:50%;background:linear-gradient(145deg,#2563eb,#1d4ed8);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 40px rgba(37,99,235,.6);border:3px solid rgba(255,255,255,.2);transition:all .2s;opacity:1}
+  #center-play{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;width:88px;height:88px;border-radius:50%;background:linear-gradient(145deg,#2563eb,#1d4ed8);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 40px rgba(37,99,235,.6);border:3px solid rgba(255,255,255,.2);transition:all .2s}
   #center-play:hover{transform:translate(-50%,-50%) scale(1.08)}
   #center-play.hidden{opacity:0;pointer-events:none}
-  #center-play svg{margin-left:5px}
-  #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;pointer-events:none;transition:opacity .3s}
+  #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;transition:opacity .3s}
   #chip.hls{background:rgba(34,197,94,.25);border-color:rgba(34,197,94,.5);color:#bbf7d0}
-  #chip.mp4{background:rgba(59,130,246,.25);border-color:rgba(59,130,246,.5);color:#bfdbfe}
-  #chip.iframe{background:rgba(148,163,184,.25);border-color:rgba(148,163,184,.5);color:#e2e8f0}
   #chip.hidden{opacity:0}
   #btn-servers{position:fixed;top:14px;right:14px;z-index:40;padding:8px 14px;border-radius:10px;background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);display:flex;align-items:center;gap:6px}
-  #btn-servers:hover{background:rgba(40,44,60,.95)}
-  #panel-servers{position:fixed;top:60px;right:14px;z-index:40;width:300px;max-height:70vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  #panel-servers{position:fixed;top:60px;right:14px;z-index:40;width:300px;max-height:70vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto}
   #panel-servers.on{display:block}
   #panel-servers h3{font-size:11px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px 0}
-  .srv-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 12px;margin-bottom:6px;border-radius:8px;background:rgba(43,50,63,.6);border:1px solid rgba(255,255,255,.08);color:#d1d5db;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;text-align:left}
+  .srv-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 12px;margin-bottom:6px;border-radius:8px;background:rgba(43,50,63,.6);border:1px solid rgba(255,255,255,.08);color:#d1d5db;font-size:13px;font-weight:500;cursor:pointer;text-align:left}
   .srv-btn:hover{background:rgba(60,70,88,.9);color:#fff}
   .srv-btn.active{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
-  .srv-kind{font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;line-height:1}
+  .srv-kind{font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px}
   .kind-hls{background:rgba(34,197,94,.25);color:#86efac;border:1px solid rgba(34,197,94,.5)}
-  .kind-mp4{background:rgba(59,130,246,.25);color:#93c5fd;border:1px solid rgba(59,130,246,.5)}
-  .kind-iframe{background:rgba(148,163,184,.25);color:#cbd5e1;border:1px solid rgba(148,163,184,.4)}
   #hud{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:24px 20px 16px;background:linear-gradient(to top,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 60%,transparent 100%);transition:opacity .35s,transform .35s}
   #hud.hidden{opacity:0;pointer-events:none;transform:translateY(20px)}
   #hud-row{display:flex;align-items:center;gap:16px;margin-bottom:14px}
@@ -42,35 +34,24 @@
   #poster-box img{width:100%;height:100%;object-fit:cover;display:block}
   #info{flex:1;min-width:0}
   #title{font-size:18px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #meta{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #controls{display:flex;align-items:center;gap:8px;flex-shrink:0}
-  .ctrl-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.75);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
+  #meta{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px}
+  #controls{display:flex;align-items:center;gap:8px}
+  .ctrl-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.75);font-size:12px;font-weight:600;cursor:pointer}
   .ctrl-btn:hover{background:rgba(255,255,255,.12);color:#fff}
   .ctrl-btn.play{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
-  .ctrl-btn.play:hover{background:rgba(37,99,235,.4);color:#fff}
-  .key-badge{background:rgba(255,255,255,.85);color:#000;font-size:9px;font-weight:800;border-radius:3px;padding:2px 5px;line-height:1}
+  .key-badge{background:rgba(255,255,255,.85);color:#000;font-size:9px;font-weight:800;border-radius:3px;padding:2px 5px}
   #scrubber-row{display:flex;align-items:center;gap:12px}
-  #time-cur,#time-dur{font-size:12px;font-family:ui-monospace,monospace;color:#fff;min-width:48px;text-align:center}
-  #time-dur{color:rgba(255,255,255,.6)}
+  #time-cur,#time-dur{font-size:12px;font-family:monospace;color:#fff;min-width:48px;text-align:center}
   #scrubber-wrap{flex:1;position:relative;height:20px;display:flex;align-items:center}
   #scrubber-track{width:100%;height:4px;background:rgba(255,255,255,.15);border-radius:2px;overflow:hidden;position:relative}
-  #scrubber-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:2px;transition:width .1s}
+  #scrubber-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:2px}
   #scrubber{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;-webkit-appearance:none;background:transparent}
-  #scrubber::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:#00d2ff;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px rgba(0,210,255,.8);cursor:pointer}
-  #loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;display:none;align-items:center;gap:10px;padding:14px 22px;border-radius:14px;background:rgba(0,0,0,.9);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:13px;backdrop-filter:blur(12px)}
+  #loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;display:none;align-items:center;gap:10px;padding:14px 22px;border-radius:14px;background:rgba(0,0,0,.9);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:13px}
   #loading.on{display:flex}
   #loading .sp{width:16px;height:16px;border:2px solid rgba(96,165,250,.2);border-top-color:#60a5fa;border-radius:50%;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
-  #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:60;padding:10px 18px;border-radius:10px;background:rgba(10,11,18,.95);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:12px;font-weight:500;backdrop-filter:blur(12px);opacity:0;transition:all .3s;pointer-events:none;max-width:85vw;text-align:center}
+  #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:60;padding:10px 18px;border-radius:10px;background:rgba(10,11,18,.95);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:12px;opacity:0;transition:all .3s;pointer-events:none}
   #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
-  #show-hud{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:32;padding:5px 16px;border-radius:0 0 10px 10px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.1);border-top:none;color:rgba(255,255,255,.7);font-size:11px;font-weight:600;cursor:pointer;display:none;backdrop-filter:blur(10px)}
-  #show-hud.on{display:block}
-  @media(max-width:600px){
-    #hud-row{flex-wrap:wrap}
-    #controls{width:100%;justify-content:flex-end;margin-top:8px}
-    #center-play{width:70px;height:70px}
-    #panel-servers{width:calc(100vw - 28px);right:14px;left:14px}
-  }
 </style>
 </head>
 <body>
@@ -79,11 +60,7 @@
 <div id="stage"></div>
 <div id="chip" class="hidden">—</div>
 
-<button id="btn-servers">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="6" rx="1"/><rect x="3" y="10" width="18" height="6" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
-  Servidores
-</button>
-
+<button id="btn-servers">Servidores</button>
 <div id="panel-servers">
   <h3>Servidores disponibles</h3>
   <div id="servers-list"></div>
@@ -119,57 +96,33 @@
   </div>
 </div>
 
-<button id="show-hud">▲ Mostrar controles</button>
-
 <script>
-/* ══════════════════════════════════════════════════════════════════════════
-   ⚠️⚠️ CAMBIA ESTA URL POR LA QUE TE DIO RENDER ⚠️⚠️
-   Ejemplo: https://mi-jugador-api.onrender.com
-   ══════════════════════════════════════════════════════════════════════════ */
-const API_BASE = 'https://mi-jugador-api.onrender.com';
+// ⚠️ CAMBIA ESTA URL POR LA DE TU BACKEND EN RENDER
+const API_BASE = 'https://mi-player-api.onrender.com';
 
-/* ══════════════════════════════════════════════════════════════════════════
-   ✅ LISTA BLANCA: Solo estos servidores se procesarán y mostrarán
-   ══════════════════════════════════════════════════════════════════════════ */
 const ALLOWED_PROVIDERS = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
 
-const state = {
-  isPlaying:false, currentTime:0, duration:0,
-  isSeeking:false, currentLang:null, currentSrv:null, currentKind:null,
-};
-let embeds = {};
+const state = { isPlaying:false, currentTime:0, duration:0, isSeeking:false, currentSrv:null };
 let _extracted = {};
-let _currentFrame = null, _currentVideoEl = null, _currentHls = null;
+let _currentVideoEl = null, _currentHls = null;
 
 const $ = id => document.getElementById(id);
 const els = {
   stage:$('stage'), backdrop:$('backdrop'), chip:$('chip'),
-  btnServers:$('btn-servers'), panelServers:$('panel-servers'), serversList:$('servers-list'),
-  centerPlay:$('center-play'),
-  loading:$('loading'), loadingText:$('loading-text'), toast:$('toast'),
-  hud:$('hud'), showHud:$('show-hud'),
-  posterImg:$('poster-img'), title:$('title'), meta:$('meta'),
+  panelServers:$('panel-servers'), serversList:$('servers-list'),
+  centerPlay:$('center-play'), loading:$('loading'), loadingText:$('loading-text'),
+  toast:$('toast'), hud:$('hud'), posterImg:$('poster-img'), title:$('title'), meta:$('meta'),
   btnPlay:$('btn-play'), btnRew:$('btn-rew'), btnFwd:$('btn-fwd'),
-  timeCur:$('time-cur'), timeDur:$('time-dur'),
-  scrubber:$('scrubber'), scrubberFill:$('scrubber-fill'),
+  timeCur:$('time-cur'), timeDur:$('time-dur'), scrubber:$('scrubber'), scrubberFill:$('scrubber-fill'),
 };
 
-const LANG_ORDER = ['latino','español','subtitulado'];
-const PROVIDER_DISPLAY = {
-  vimeos:'Vimeos', voe:'VOE', streamwish:'StreamWish', vidhide:'VidHide',
-  filelions:'FileLions', filemoon:'FileMoon', doodstream:'DoodStream',
-  fembed:'Fembed', streamtape:'StreamTape', mixdrop:'MixDrop', okru:'OkRu',
-  uqload:'Uqload', vidspeed:'VidSpeed', vidmoly:'Vidmoly',
-  mp4upload:'Mp4Upload', netu:'Netu', fastream:'Fastream', xpass:'Xpass',
-};
+const PROVIDER_DISPLAY = { streamwish:'StreamWish', vidmoly:'Vidmoly', filelions:'FileLions', vidhide:'VidHide' };
 
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
 function normKey(n){
   let b = (n||'').toLowerCase().replace(/[\s_-]+\d+$/,'');
-  if (['hglink','flaswish','wishfast','awish'].includes(b)) return 'streamwish';
-  if (['filelions','minochinos','vihide','vidhidepro','callistanise','hgcloud','earnvids','masukesting','morencius'].includes(b)) return 'vidhide';
-  if (['dood','doodcx','doodpm','doodto','doodla','d0000d'].includes(b)) return 'doodstream';
+  if (['hglink','flaswish','wishfast','awish','embedwish'].includes(b)) return 'streamwish';
+  if (['filelions','minochinos','vihide','vidhidepro','callistanise'].includes(b)) return 'vidhide';
   return b;
 }
 function trueBase(n){
@@ -177,22 +130,10 @@ function trueBase(n){
   do{p=b;b=b.replace(/[\s_-]+\d+$/,'').replace(/(?<=[a-zA-Z]{3})\d+$/,'');}while(b!==p);
   return b;
 }
-const HLS_RE = [/\.m3u8(\?|$)/i, /master\.txt(\?|$)/i];
-const MP4_RE = [/\.mp4(\?|$)/i, /\.webm(\?|$)/i];
-function detectByUrl(url){
-  if (!url) return null;
-  for (const re of HLS_RE) if (re.test(url)) return 'hls';
-  for (const re of MP4_RE) if (re.test(url)) return 'mp4';
-  return null;
-}
 
-/* ══════════════════════════════════════════════════════════════════════════
-   UI helpers
-   ══════════════════════════════════════════════════════════════════════════ */
 function showToast(m, d){
   d = d || 3000;
-  els.toast.textContent = m;
-  els.toast.classList.add('on');
+  els.toast.textContent = m; els.toast.classList.add('on');
   clearTimeout(showToast._t);
   showToast._t = setTimeout(() => els.toast.classList.remove('on'), d);
 }
@@ -206,16 +147,11 @@ function fmt(s){
 }
 function setChip(k){
   if (!k){ els.chip.classList.add('hidden'); return; }
-  els.chip.className = k;
-  els.chip.classList.remove('hidden');
-  els.chip.textContent = k==='hls' ? '● HLS nativo' : k==='mp4' ? '● MP4 nativo' : '● iframe externo';
+  els.chip.className = k; els.chip.classList.remove('hidden');
+  els.chip.textContent = '● HLS nativo';
 }
-function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.remove('on'); }
-function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Extracción secuencial (con API_BASE)
-   ══════════════════════════════════════════════════════════════════════════ */
+// ═══ Extraer HLS desde cada servidor ═══
 async function extractFromBackend(embedUrl){
   try {
     const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
@@ -227,253 +163,133 @@ async function extractFromBackend(embedUrl){
 }
 
 async function extractAllServers(srvs){
-  const entries = Object.entries(srvs);
   const extracted = {};
-  for (let i = 0; i < entries.length; i++){
-    const name = entries[i][0];
-    const url = entries[i][1];
-
-    /* ✅ FILTRO: Ignorar servidores que no estén en la lista blanca */
+  for (const [name, url] of Object.entries(srvs)){
     const baseName = normKey(trueBase(name));
-    if (!ALLOWED_PROVIDERS.includes(baseName)) {
-      console.log(`[Filtro] Ignorando servidor no deseado: ${name}`);
+    if (!ALLOWED_PROVIDERS.includes(baseName)) continue;
+
+    showLoading('Extrayendo ' + cap(name) + '…');
+
+    // Si la URL ya es un m3u8 directo (devuelto por pelixplay.js)
+    if (url.includes('.m3u8') || url.includes('master.txt')) {
+      extracted[name] = { url, stream:url, kind:'hls', referer:url };
       continue;
     }
 
-    const byUrl = detectByUrl(url);
-    if (byUrl){
-      extracted[name] = { url, stream:url, kind:byUrl, referer:url };
-      continue;
-    }
-    showLoading('Extrayendo ' + (i+1) + '/' + entries.length + ': ' + cap(name) + '…');
+    // Si es un embed normal, extraer con Puppeteer
     const res = await extractFromBackend(url);
-    if (res){
+    if (res && res.stream){
       extracted[name] = { url, stream:res.stream, kind:res.kind, referer:res.referer };
     } else {
-      extracted[name] = { url, stream:null, kind:'iframe', referer:url };
+      console.log(`[Filtro] No se pudo extraer HLS de ${name} → se ignora`);
     }
   }
   hideLoading();
   _extracted = extracted;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Montaje de reproductor
-   ══════════════════════════════════════════════════════════════════════════ */
-function teardown(){
-  if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
-  if (_currentFrame){ try{ _currentFrame.remove(); }catch(_){} _currentFrame = null; }
-  _currentVideoEl = null;
-}
-function attachVideo(vid){
+// ═══ Montar HLS ═══
+function mountHls(url){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
+  const vid = document.createElement('video');
+  vid.playsInline=true; vid.preload='metadata'; vid.controls=false;
+  wrap.appendChild(vid);
+  els.stage.appendChild(wrap);
+  if (_currentVideoEl) _currentVideoEl.parentElement?.remove();
+  if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} }
+  _currentVideoEl = vid;
+  _currentHls = null;
+
   vid.addEventListener('loadedmetadata', () => { state.duration = vid.duration||0; updateScrubber(); hideLoading(); });
   vid.addEventListener('timeupdate', () => { state.currentTime = vid.currentTime||0; if (!state.isSeeking) updateScrubber(); });
   vid.addEventListener('play',  () => { state.isPlaying=true; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Pausar'; });
   vid.addEventListener('pause', () => { state.isPlaying=false; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Reproducir'; });
-}
 
-/* ══════════════════════════════════════════════════════════════════════════
-   HLS con proxy (API_BASE)
-   ══════════════════════════════════════════════════════════════════════════ */
-function mountHls(url, referer){
-  state.currentKind = 'hls';
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
-  const vid = document.createElement('video');
-  vid.playsInline = true; vid.preload = 'metadata'; vid.controls = false;
-  wrap.appendChild(vid);
-  els.stage.appendChild(wrap);
-  _currentFrame = wrap; _currentVideoEl = vid;
-  attachVideo(vid);
-
-  const ref = referer || url;
-  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
-
-  console.log('[HLS] Cargando vía proxy:', proxyUrl.slice(0, 120));
+  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(url);
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()){
     const hls = new Hls({ maxBufferLength: 30, startLevel: -1, enableWorker: true });
     _currentHls = hls;
     hls.loadSource(proxyUrl);
     hls.attachMedia(vid);
-
-    const loadTimeout = setTimeout(() => {
-      console.warn('[HLS] Timeout cargando');
-      showToast('El stream tarda. Probando otro servidor…');
-      hideLoading();
-      tryNextServer();
-    }, 20000);
-
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      clearTimeout(loadTimeout);
-      hideLoading();
-      vid.play().catch(()=>{});
-    });
-
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { hideLoading(); vid.play().catch(()=>{}); });
     hls.on(Hls.Events.ERROR, (_, d) => {
-      if (d.fatal){
-        clearTimeout(loadTimeout);
-        console.warn('[HLS] Error fatal:', d.details);
-        showToast('Error, probando siguiente…');
-        hideLoading();
-        tryNextServer();
-      }
+      if (d.fatal){ hideLoading(); tryNextServer(); }
     });
-  } else if (vid.canPlayType('application/vnd.apple.mpegurl')){
-    vid.src = proxyUrl; vid.load();
-    vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
-    vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
   }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   MP4 con proxy (API_BASE)
-   ══════════════════════════════════════════════════════════════════════════ */
-function mountMp4(url, referer){
-  state.currentKind = 'mp4';
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
-  const vid = document.createElement('video');
-  vid.playsInline = true; vid.preload = 'metadata'; vid.controls = false;
-  wrap.appendChild(vid);
-  els.stage.appendChild(wrap);
-  _currentFrame = wrap; _currentVideoEl = vid;
-  attachVideo(vid);
-
-  const ref = referer || url;
-  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
-  vid.src = proxyUrl; vid.load();
-  vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
-  vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Iframe (fallback)
-   ══════════════════════════════════════════════════════════════════════════ */
-function mountIframe(url){
-  state.currentKind = 'iframe';
-  const iframe = document.createElement('iframe');
-  iframe.className = 'ulp-iframe';
-  iframe.allow = 'autoplay *; fullscreen *; encrypted-media *; picture-in-picture *';
-  iframe.allowFullscreen = true;
-  iframe.setAttribute('allowfullscreen','');
-  iframe.setAttribute('referrerpolicy','no-referrer');
-  iframe.src = url;
-  iframe.addEventListener('load', () => hideLoading());
-  els.stage.appendChild(iframe);
-  _currentFrame = iframe; _currentVideoEl = null;
-  state.duration = 0; state.currentTime = 0;
-  updateScrubber();
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Cambio de servidor + fallback
-   ══════════════════════════════════════════════════════════════════════════ */
 function loadServer(name){
   const srv = _extracted[name];
   if (!srv) return;
   state.currentSrv = name;
-  const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
-  const label = srv.kind === 'hls' ? 'HLS' : srv.kind === 'mp4' ? 'MP4' : 'iframe';
-  showLoading('Cargando ' + disp + ' (' + label + ')…');
-  setChip(srv.kind);
-  teardown();
+  showLoading('Cargando ' + (PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name)) + '…');
+  setChip('hls');
+  if (_currentVideoEl){ _currentVideoEl.parentElement?.remove(); _currentVideoEl = null; }
+  if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
   els.centerPlay.classList.add('hidden');
   els.backdrop.classList.add('hidden');
-
-  if (srv.stream && srv.kind === 'hls') mountHls(srv.stream, srv.referer);
-  else if (srv.stream && srv.kind === 'mp4') mountMp4(srv.stream, srv.referer);
-  else mountIframe(srv.url);
-
+  mountHls(srv.stream);
   renderServersList();
 }
+
 function tryNextServer(){
   const names = Object.keys(_extracted);
   if (names.length < 2) return;
   const idx = names.indexOf(state.currentSrv);
   const next = names[idx + 1] || names[0];
-  if (next && next !== state.currentSrv) {
-    console.log('[Player] Fallback → ' + next);
+  if (next && next !== state.currentSrv){
+    showToast('Servidor falló. Probando ' + next);
     setTimeout(() => loadServer(next), 800);
   }
 }
+
 function autoLoadBest(){
   const names = Object.keys(_extracted);
-  if (!names.length){ showToast('Sin servidores válidos'); return; }
-  const prio = { hls:0, mp4:1, iframe:2 };
-  names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
+  if (!names.length){ showToast('Sin servidores HLS disponibles'); return; }
   loadServer(names[0]);
 }
+
 function renderServersList(){
   els.serversList.innerHTML = '';
-  const names = Object.keys(_extracted);
-  const prio = { hls:0, mp4:1, iframe:2 };
-  names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
-  names.forEach(name => {
-    const kind = _extracted[name].kind;
+  Object.keys(_extracted).forEach(name => {
     const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
     const btn = document.createElement('button');
     btn.className = 'srv-btn' + (name === state.currentSrv ? ' active' : '');
-    btn.innerHTML = '<span>' + esc(disp) + '</span><span class="srv-kind kind-' + kind + '">' + kind.toUpperCase() + '</span>';
+    btn.innerHTML = '<span>' + disp + '</span><span class="srv-kind kind-hls">HLS</span>';
     btn.onclick = () => { loadServer(name); els.panelServers.classList.remove('on'); };
     els.serversList.appendChild(btn);
   });
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Scrubber / Play
-   ══════════════════════════════════════════════════════════════════════════ */
 function updateScrubber(){
-  if (state.duration <= 0){
-    els.scrubber.value = 0; els.scrubberFill.style.width = '0%';
-    els.timeCur.textContent = fmt(state.currentTime);
-    els.timeDur.textContent = state.currentKind === 'iframe' ? '—' : '00:00';
-    return;
-  }
+  if (state.duration <= 0){ els.scrubberFill.style.width='0%'; els.timeCur.textContent='00:00'; return; }
   const pct = Math.min(Math.max((state.currentTime/state.duration)*100, 0), 100);
   if (!state.isSeeking) els.scrubber.value = pct;
   els.scrubberFill.style.width = pct + '%';
   els.timeCur.textContent = fmt(state.currentTime);
   els.timeDur.textContent = fmt(state.duration);
 }
-function togglePlay(){
-  if (state.currentKind === 'iframe'){ showToast('Usá los controles del iframe'); return; }
+
+els.btnPlay.onclick = () => {
   if (_currentVideoEl){
     if (_currentVideoEl.paused) _currentVideoEl.play().catch(()=>{});
     else _currentVideoEl.pause();
   }
-}
-function rewind10(){
-  if (_currentVideoEl) _currentVideoEl.currentTime = Math.max(0, _currentVideoEl.currentTime - 10);
-  else showToast('Solo en HLS/MP4');
-}
-function forward10(){
-  if (_currentVideoEl) _currentVideoEl.currentTime = Math.min(_currentVideoEl.duration||Infinity, _currentVideoEl.currentTime + 10);
-  else showToast('Solo en HLS/MP4');
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Listeners
-   ══════════════════════════════════════════════════════════════════════════ */
-els.btnPlay.onclick = togglePlay;
-els.btnRew.onclick = rewind10;
-els.btnFwd.onclick = forward10;
-els.centerPlay.onclick = () => {
-  if (!state.currentSrv) autoLoadBest();
-  else togglePlay();
 };
-els.btnServers.onclick = (e) => { e.stopPropagation(); els.panelServers.classList.toggle('on'); };
-els.showHud.onclick = showHUD;
+els.btnRew.onclick = () => { if (_currentVideoEl) _currentVideoEl.currentTime = Math.max(0, _currentVideoEl.currentTime - 10); };
+els.btnFwd.onclick = () => { if (_currentVideoEl) _currentVideoEl.currentTime = Math.min(_currentVideoEl.duration||Infinity, _currentVideoEl.currentTime + 10); };
+els.centerPlay.onclick = () => { if (!state.currentSrv) autoLoadBest(); else els.btnPlay.click(); };
+$('btn-servers').onclick = (e) => { e.stopPropagation(); els.panelServers.classList.toggle('on'); };
 
 els.scrubber.addEventListener('input', e => {
-  if (state.currentKind === 'iframe') return;
   const pct = parseFloat(e.target.value);
   state.currentTime = (pct/100) * state.duration;
   els.scrubberFill.style.width = pct + '%';
   els.timeCur.textContent = fmt(state.currentTime);
 });
 els.scrubber.addEventListener('change', e => {
-  if (state.currentKind === 'iframe') return;
   state.isSeeking = false;
   const sec = (parseFloat(e.target.value)/100) * state.duration;
   if (_currentVideoEl) _currentVideoEl.currentTime = sec;
@@ -482,68 +298,43 @@ els.scrubber.addEventListener('change', e => {
 els.scrubber.addEventListener('pointerdown', () => state.isSeeking = true);
 els.scrubber.addEventListener('pointerup', () => state.isSeeking = false);
 
-let _idleTimer = null;
-function resetIdle(){
-  showHUD();
-  clearTimeout(_idleTimer);
-  _idleTimer = setTimeout(() => { if (state.isPlaying) hideHUD(); }, 4000);
-}
-window.addEventListener('mousemove', resetIdle);
-window.addEventListener('touchstart', resetIdle);
 document.addEventListener('click', e => {
-  if (!els.panelServers.contains(e.target) && e.target !== els.btnServers) {
+  if (!els.panelServers.contains(e.target) && e.target.id !== 'btn-servers') {
     els.panelServers.classList.remove('on');
   }
 });
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Init (con API_BASE)
-   ══════════════════════════════════════════════════════════════════════════ */
-function getQueryParam(name){ return new URLSearchParams(location.search).get(name); }
 async function init(){
-  const id = getQueryParam('id') || '293660';
-  const type = getQueryParam('type') || 'movie';
+  const id = new URLSearchParams(location.search).get('id') || '315635';
+  const type = new URLSearchParams(location.search).get('type') || 'movie';
   showLoading('Buscando servidores…');
   try {
     const r = await fetch(API_BASE + '/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    if (!data.servers || !Object.keys(data.servers).length){
-      showToast('Sin servidores disponibles');
-      hideLoading();
-      return;
+    if (!data.servers || !Object.keys(data.servers.latino || {}).length){
+      showToast('Sin servidores disponibles'); hideLoading(); return;
     }
     if (data.meta){
       if (data.meta.title) els.title.textContent = data.meta.title;
       const parts = [];
       if (data.meta.year) parts.push(data.meta.year);
-      if (data.meta.genres && data.meta.genres.length) parts.push(data.meta.genres.slice(0,2).join(' / '));
-      if (data.meta.runtime){
-        const h = Math.floor(data.meta.runtime/60), m = data.meta.runtime%60;
-        parts.push(h>0?h+'h '+m+'m':m+'m');
-      }
+      if (data.meta.genres?.length) parts.push(data.meta.genres.slice(0,2).join(' / '));
+      if (data.meta.runtime) parts.push(data.meta.runtime + 'm');
       if (data.meta.voteAverage) parts.push('⭐ ' + data.meta.voteAverage);
-      els.meta.textContent = parts.join(' • ') || 'Sin información';
+      els.meta.textContent = parts.join(' • ');
       if (data.meta.backdrop) els.backdrop.style.backgroundImage = 'url(' + data.meta.backdrop + ')';
       if (data.meta.poster) els.posterImg.src = data.meta.poster;
-      if (data.meta.title) document.title = data.meta.title + ' — UnLim Play';
+      document.title = (data.meta.title || 'UnLim Play') + ' — UnLim Play';
     }
-    embeds = data.servers;
-    state.currentLang = LANG_ORDER.find(l => embeds[l]) || Object.keys(embeds)[0];
-    hideLoading();
-    const srvs = embeds[state.currentLang] || {};
-    await extractAllServers(srvs);
+    await extractAllServers(data.servers.latino);
     renderServersList();
     autoLoadBest();
-    resetIdle();
   } catch(e){
-    console.error('[Init]', e);
-    showToast('Error: ' + e.message);
-    hideLoading();
+    console.error(e); showToast('Error: ' + e.message); hideLoading();
   }
 }
 init();
 </script>
-
 </body>
 </html>
