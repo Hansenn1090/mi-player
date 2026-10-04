@@ -1,82 +1,85 @@
-module.exports = {
-  key: 'cineplus123',
-  name: 'CinePlus123',
-  enabled: true,
-  weight: 9,
-  langs: ['latino', 'castellano', 'subtitulado'],
-  mirrors: [{ base: 'https://cineplus123.org', weight: 10 }],
+const axios = require('axios');
+const cheerio = require('cheerio');
 
-  buildSearchUrl(tmdbId, type, title) {
-    const q = encodeURIComponent(title || tmdbId);
-    const postType = type === 'tv' ? 'serie-de-tv' : 'peliculas';
-    return `${this.mirrors[0].base}/?s=${q}&post_type=${postType}`;
-  },
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+const BASE = 'https://cineplus123.com';
 
-  selectors: {
-    movieLink: [
-      'div.image > a[href*="/peliculas/"]',
-      'article.item a[href*="/peliculas/"]',
-      'h3.title > a[href*="/peliculas/"]',
-    ],
-    tvLink: [
-      'div.image > a[href*="/serie-de-tv/"]',
-      'article.item a[href*="/serie-de-tv/"]',
-      'h3.title > a[href*="/serie-de-tv/"]',
-    ],
-  },
+async function scrapeCineplus123(title, year, tmdbId, type) {
+  const found = {};
+  if (!title) return found;
+  console.log('[cineplus123] Buscando:', title, year || '');
 
-  parseDetail($) {
-    const servers = [];
-    $('li.dooplay_player_option, li[data-post][data-nume]').each((i, el) => {
-      const $el = $(el);
-      const postId = $el.attr('data-post');
-      const nume = $el.attr('data-nume');
-      const dtype = $el.attr('data-type') || 'movie';
-      if (!postId || !nume) return;
-
-      let langKey = 'latino';
-      const titleText = $el.find('span.title').text().trim().toUpperCase();
-      const serverText = $el.find('span.server').text().trim().toUpperCase();
-      const allText = titleText + ' ' + serverText;
-
-      if (/CASTELLANO|ESPANA/i.test(allText)) langKey = 'castellano';
-      else if (/SUBTITULADO|SUB\b/i.test(allText)) langKey = 'subtitulado';
-
-      servers.push({
-        name: `${titleText || 'HD'} ${serverText}`,
-        lang: langKey,
-        ajax: { post: postId, nume, type: dtype },
-      });
+  try {
+    const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
+    const { data: searchHtml } = await axios.get(searchUrl, {
+      timeout: 12000,
+      headers: { 'User-Agent': UA, 'Referer': BASE + '/' },
+      validateStatus: s => s >= 200 && s < 400,
     });
-    return servers;
-  },
 
-  async resolveEmbed(server, { http, pickUA, mirror }) {
-    const actions = ['doo_player_ajax', 'dooplay_player_ajax'];
-    for (const action of actions) {
-      try {
-        const { data } = await http.post(
-          `${mirror.base}/wp-admin/admin-ajax.php`,
-          new URLSearchParams({
-            action,
-            post: server.ajax.post,
-            nume: server.ajax.nume,
-            type: server.ajax.type,
-          }).toString(),
-          {
-            headers: {
-              'User-Agent': pickUA(),
-              'Referer': mirror.base,
-              'X-Requested-With': 'XMLHttpRequest',
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-          }
-        );
-        if (data && data.embed_url) return data.embed_url;
-        if (data && data.url) return data.url;
-        if (typeof data === 'string' && /^https?:/.test(data.trim())) return data.trim();
-      } catch (e) {}
-    }
-    return null;
-  },
+    const $ = cheerio.load(searchHtml);
+    let detailUrl = null;
+
+    const normalize = s => (s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+
+    const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
+
+    $('a').each((i, el) => {
+      if (detailUrl) return;
+      const href = $(el).attr('href') || '';
+      if (!href.includes('/pelicula/') && !href.includes('/ver/')) return;
+      const text = normalize($(el).text());
+      const matches = titleWords.filter(w => text.includes(w));
+      if (matches.length >= Math.min(2, titleWords.length)) {
+        detailUrl = href.startsWith('http') ? href : BASE + href;
+      }
+    });
+
+    if (!detailUrl) return found;
+
+    const { data: detailHtml } = await axios.get(detailUrl, {
+      timeout: 12000,
+      headers: { 'User-Agent': UA, 'Referer': BASE + '/' },
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    const $d = cheerio.load(detailHtml);
+
+    $d('iframe').each((i, el) => {
+      const src = $d(el).attr('src') || $d(el).attr('data-src');
+      if (!src) return;
+      let embedUrl = src;
+      if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
+      if (embedUrl.startsWith('/')) embedUrl = BASE + embedUrl;
+      if (!embedUrl.startsWith('http')) return;
+      if (/doubleclick|google|youtube/i.test(embedUrl)) return;
+
+      const name = detectServerName(embedUrl);
+      if (!found.latino) found.latino = {};
+      if (!found.latino[name]) found.latino[name] = embedUrl;
+    });
+
+    return found;
+  } catch (e) {
+    console.warn('[cineplus123] Error:', e.message);
+    return found;
+  }
+}
+
+function detectServerName(url) {
+  const u = (url || '').toLowerCase();
+  if (/streamwish|hglink|filelions/i.test(u)) return 'StreamWish';
+  if (/vidhide|minochinos|callistanise/i.test(u)) return 'FileLions';
+  if (/vidmoly/i.test(u)) return 'Vidmoly';
+  if (/voe\.sx|voe\.de/i.test(u)) return 'VOE';
+  return 'Servidor';
+}
+
+module.exports = {
+  scrapeCineplus123,
+  search: async (title, year, tmdbId, type) => scrapeCineplus123(title, year, tmdbId, type)
 };
+
+console.log('[cineplus123] Provider cargado');
