@@ -1,76 +1,73 @@
 const axios = require('axios');
-const cheerio = require('cheerio');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 const BASE = 'https://pelixplay.app';
 
+// ══════════════════════════════════════════════════════════════════════
+// pelixplay.app expone una API interna en /api.php
+// Endpoint: ?action=details&id={tmdbId}&type={movie|tv}
+// Devuelve all_embeds con StreamWish, Vidmoly, FileLions, VOE, etc.
+// ══════════════════════════════════════════════════════════════════════
 async function scrapePelixplay(title, year, tmdbId, type) {
-  const found = {};
-  if (!title) return found;
-  console.log('[pelixplay] Buscando:', title, year || '');
+  const found = { latino: {}, subtitulado: {} };
+
+  if (!tmdbId) {
+    console.log('[pelixplay] Sin tmdbId, saltando');
+    return found;
+  }
+
+  console.log('[pelixplay] Consultando API con tmdbId:', tmdbId);
 
   try {
-    // 1) Buscar la película en el sitio
-    const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
-    const { data: searchHtml } = await axios.get(searchUrl, {
-      timeout: 12000,
-      headers: { 'User-Agent': UA, 'Referer': BASE + '/' },
+    const apiUrl = `${BASE}/api.php?action=details&id=${encodeURIComponent(tmdbId)}&type=${type || 'movie'}`;
+
+    const { data } = await axios.get(apiUrl, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': UA,
+        'Referer': `${BASE}/embed/embed-final.html?id=${tmdbId}`,
+        'Origin': BASE,
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      },
       validateStatus: s => s >= 200 && s < 400,
     });
 
-    const $ = cheerio.load(searchHtml);
-    let detailUrl = null;
-
-    // Buscar el link más parecido
-    const normalize = s => (s || '').toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-
-    const titleNorm = normalize(title);
-    const titleWords = titleNorm.split(' ').filter(w => w.length > 2);
-
-    $('a').each((i, el) => {
-      if (detailUrl) return;
-      const href = $(el).attr('href') || '';
-      if (!href.includes('/pelicula/') && !href.includes('/serie/')) return;
-      const text = normalize($(el).text());
-      const matches = titleWords.filter(w => text.includes(w));
-      if (matches.length >= Math.min(2, titleWords.length)) {
-        detailUrl = href.startsWith('http') ? href : BASE + href;
-      }
-    });
-
-    if (!detailUrl) {
-      console.log('[pelixplay] No se encontró detalle');
+    if (!data || !data.ok) {
+      console.log('[pelixplay] API respondió ok=false');
       return found;
     }
 
-    // 2) Cargar la página de detalle
-    const { data: detailHtml } = await axios.get(detailUrl, {
-      timeout: 12000,
-      headers: { 'User-Agent': UA, 'Referer': BASE + '/' },
-      validateStatus: s => s >= 200 && s < 400,
-    });
+    // La API devuelve all_embeds agrupado por idioma
+    const allEmbeds = data.all_embeds || {};
+    const defaultLang = data.language || 'latino';
+    if (!allEmbeds[defaultLang] && data.embeds) {
+      allEmbeds[defaultLang] = data.embeds;
+    }
 
-    const $d = cheerio.load(detailHtml);
+    // Recorrer los idiomas y servidores
+    for (const [lang, servers] of Object.entries(allEmbeds)) {
+      const targetLang = (lang === 'latino' || lang === 'español' || lang === 'castellano')
+        ? 'latino'
+        : 'subtitulado';
 
-    // 3) Extraer iframes de servidores
-    $d('iframe').each((i, el) => {
-      const src = $d(el).attr('src') || $d(el).attr('data-src');
-      if (!src) return;
-      let embedUrl = src;
-      if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
-      if (embedUrl.startsWith('/')) embedUrl = BASE + embedUrl;
-      if (!embedUrl.startsWith('http')) return;
-      if (/doubleclick|googlesyndication|google-analytics|youtube/i.test(embedUrl)) return;
+      for (const [serverName, urls] of Object.entries(servers)) {
+        const urlList = Array.isArray(urls) ? urls : [urls];
+        const firstUrl = urlList[0];
+        if (!firstUrl) continue;
 
-      const name = detectServerName(embedUrl);
-      if (!found.latino) found.latino = {};
-      if (!found.latino[name]) {
-        found.latino[name] = embedUrl;
-        console.log(`[pelixplay] OK latino/${name}: ${embedUrl.slice(0, 80)}`);
+        const norm = normalizeName(serverName);
+        if (!norm) {
+          console.log(`[pelixplay] Ignorando servidor no permitido: ${serverName}`);
+          continue;
+        }
+
+        if (!found[targetLang][norm]) {
+          found[targetLang][norm] = firstUrl;
+          console.log(`[pelixplay] OK ${targetLang}/${norm}: ${String(firstUrl).slice(0, 80)}`);
+        }
       }
-    });
+    }
 
     return found;
   } catch (e) {
@@ -79,16 +76,12 @@ async function scrapePelixplay(title, year, tmdbId, type) {
   }
 }
 
-function detectServerName(url) {
-  const u = (url || '').toLowerCase();
-  if (/streamwish|embedwish|hglink|filelions/i.test(u)) return 'StreamWish';
-  if (/vidhide|morencius|minochinos|callistanise/i.test(u)) return 'FileLions';
-  if (/vidmoly/i.test(u)) return 'Vidmoly';
-  if (/voe\.sx|voe\.de|voe\.bar/i.test(u)) return 'VOE';
-  if (/vimeos/i.test(u)) return 'Vimeos';
-  if (/filemoon|moonplayer/i.test(u)) return 'FileMoon';
-  if (/dood/i.test(u)) return 'DoodStream';
-  return 'Servidor';
+function normalizeName(name) {
+  const base = String(name).toLowerCase().replace(/[\s_-]+\d+$/, '');
+  if (['streamwish', 'hglink', 'flaswish', 'wishfast', 'awish', 'embedwish'].includes(base)) return 'StreamWish';
+  if (['vidmoly'].includes(base)) return 'Vidmoly';
+  if (['filelions', 'vidhide', 'vidhidepro', 'minochinos', 'callistanise', 'filemoon'].includes(base)) return 'FileLions';
+  return null;
 }
 
 module.exports = {
@@ -96,4 +89,4 @@ module.exports = {
   search: async (title, year, tmdbId, type) => scrapePelixplay(title, year, tmdbId, type)
 };
 
-console.log('[pelixplay] Provider cargado');
+console.log('[pelixplay] Provider cargado (API mode)');
