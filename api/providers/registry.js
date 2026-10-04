@@ -1,7 +1,7 @@
-const pelisPedia = require('./pelispedia');
+const multi = require('./multi');
 
 const PROVIDERS = [
-  { name: 'pelispedia', module: pelisPedia, priority: 1 },
+  { name: 'multi', module: multi, priority: 1 },
 ];
 
 const ALLOWED_SERVERS = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
@@ -15,20 +15,18 @@ function isAllowedServer(name) {
 
 async function searchAllProviders(title, year, tmdbId, type) {
   const allResults = { latino: {}, subtitulado: {} };
-  const sorted = [...PROVIDERS].sort((a, b) => a.priority - b.priority);
 
-  for (const provider of sorted) {
+  for (const provider of PROVIDERS) {
     if (!provider.module || typeof provider.module.search !== 'function') continue;
     try {
-      console.log(`[registry] Consultando ${provider.name}...`);
       const result = await provider.module.search(title, year, tmdbId, type);
       if (!result) continue;
 
       for (const lang of ['latino', 'subtitulado']) {
         if (result[lang]) {
-          for (const [serverName, url] of Object.entries(result[lang])) {
-            if (isAllowedServer(serverName) && !allResults[lang][serverName]) {
-              allResults[lang][serverName] = url;
+          for (const [name, url] of Object.entries(result[lang])) {
+            if (isAllowedServer(name) && !allResults[lang][name]) {
+              allResults[lang][name] = url;
             }
           }
         }
@@ -38,7 +36,7 @@ async function searchAllProviders(title, year, tmdbId, type) {
     }
   }
 
-  console.log('[registry] Resultado:', Object.keys(allResults.latino));
+  console.log('[registry] Resultado final:', Object.keys(allResults.latino));
   return allResults;
 }
 
