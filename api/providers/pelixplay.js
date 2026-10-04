@@ -4,20 +4,9 @@ puppeteer.use(StealthPlugin());
 
 const BASE = 'https://pelixplay.app';
 
-// ══════════════════════════════════════════════════════════════════════
-// Este provider:
-// 1. Abre el embed de pelixplay
-// 2. Lee el <select> de servidores
-// 3. Filtra solo StreamWish, Vidmoly, FileLions
-// 4. Extrae el HLS real de cada uno
-// 5. Devuelve { latino: { StreamWish: 'm3u8', Vidmoly: 'm3u8', ... } }
-// ══════════════════════════════════════════════════════════════════════
 async function scrapePelixplay(title, year, tmdbId, type) {
   const found = { latino: {}, subtitulado: {} };
-  if (!tmdbId) {
-    console.log('[pelixplay] Sin tmdbId, saltando');
-    return found;
-  }
+  if (!tmdbId) return found;
 
   console.log('[pelixplay] Abriendo embed con Puppeteer, tmdbId:', tmdbId);
 
@@ -44,7 +33,7 @@ async function scrapePelixplay(title, year, tmdbId, type) {
     );
     await page.setViewport({ width: 1280, height: 720 });
 
-    // Escuchar todas las peticiones .m3u8 que se carguen en la página
+    // Capturar todos los .m3u8 que aparezcan en la red
     const capturedStreams = [];
     page.on('response', (response) => {
       const url = response.url();
@@ -56,10 +45,10 @@ async function scrapePelixplay(title, year, tmdbId, type) {
     const embedUrl = `${BASE}/embed/embed-final.html?id=${tmdbId}`;
     await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    // Esperar a que el embed cargue la lista de servidores
+    // Esperar a que se renderice el select
     await new Promise(r => setTimeout(r, 7000));
 
-    // Leer todos los servidores del <select> y los idiomas
+    // Leer la lista de servidores del <select id="server-select">
     const servers = await page.evaluate(() => {
       const list = [];
       const select = document.getElementById('server-select');
@@ -82,12 +71,10 @@ async function scrapePelixplay(title, year, tmdbId, type) {
 
     console.log('[pelixplay] Servidores válidos:', validServers.map(s => s.value).join(', '));
 
-    // Para cada servidor válido: hacer clic y capturar el HLS
+    // Para cada servidor válido, hacer clic y capturar el HLS
     for (const srv of validServers) {
       try {
         console.log(`[pelixplay] Extrayendo: ${srv.value}`);
-
-        // Limpiar capturas previas y hacer clic en el servidor
         capturedStreams.length = 0;
 
         await page.evaluate((value) => {
@@ -97,7 +84,6 @@ async function scrapePelixplay(title, year, tmdbId, type) {
           select.dispatchEvent(new Event('change', { bubbles: true }));
         }, srv.value);
 
-        // Esperar a que se cargue el HLS (máx 12 s)
         const startTime = Date.now();
         while (capturedStreams.length === 0 && Date.now() - startTime < 12000) {
           await new Promise(r => setTimeout(r, 500));
@@ -108,8 +94,6 @@ async function scrapePelixplay(title, year, tmdbId, type) {
           const name = normalizeName(srv.value) || srv.value;
           found.latino[name] = hlsUrl;
           console.log(`[pelixplay] OK latino/${name}: ${hlsUrl.slice(0, 80)}`);
-        } else {
-          console.log(`[pelixplay] Sin HLS para ${srv.value}`);
         }
       } catch (err) {
         console.warn(`[pelixplay] Error extrayendo ${srv.value}:`, err.message);
@@ -118,7 +102,6 @@ async function scrapePelixplay(title, year, tmdbId, type) {
 
     await browser.close();
     browser = null;
-
     return found;
   } catch (e) {
     console.warn('[pelixplay] Error:', e.message);
