@@ -1,77 +1,128 @@
-const axios = require('axios');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 const BASE = 'https://pelixplay.app';
 
 // ══════════════════════════════════════════════════════════════════════
-// pelixplay.app expone una API interna en /api.php
-// Endpoint: ?action=details&id={tmdbId}&type={movie|tv}
-// Devuelve all_embeds con StreamWish, Vidmoly, FileLions, VOE, etc.
+// Este provider:
+// 1. Abre el embed de pelixplay
+// 2. Lee el <select> de servidores
+// 3. Filtra solo StreamWish, Vidmoly, FileLions
+// 4. Extrae el HLS real de cada uno
+// 5. Devuelve { latino: { StreamWish: 'm3u8', Vidmoly: 'm3u8', ... } }
 // ══════════════════════════════════════════════════════════════════════
 async function scrapePelixplay(title, year, tmdbId, type) {
   const found = { latino: {}, subtitulado: {} };
-
   if (!tmdbId) {
     console.log('[pelixplay] Sin tmdbId, saltando');
     return found;
   }
 
-  console.log('[pelixplay] Consultando API con tmdbId:', tmdbId);
+  console.log('[pelixplay] Abriendo embed con Puppeteer, tmdbId:', tmdbId);
 
+  let browser = null;
   try {
-    const apiUrl = `${BASE}/api.php?action=details&id=${encodeURIComponent(tmdbId)}&type=${type || 'movie'}`;
-
-    const { data } = await axios.get(apiUrl, {
-      timeout: 15000,
-      headers: {
-        'User-Agent': UA,
-        'Referer': `${BASE}/embed/embed-final.html?id=${tmdbId}`,
-        'Origin': BASE,
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-      },
-      validateStatus: s => s >= 200 && s < 400,
+    browser = await puppeteer.launch({
+      headless: 'new',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--disable-blink-features=AutomationControlled',
+        '--autoplay-policy=no-user-gesture-required',
+      ],
     });
 
-    if (!data || !data.ok) {
-      console.log('[pelixplay] API respondió ok=false');
-      return found;
-    }
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    );
+    await page.setViewport({ width: 1280, height: 720 });
 
-    // La API devuelve all_embeds agrupado por idioma
-    const allEmbeds = data.all_embeds || {};
-    const defaultLang = data.language || 'latino';
-    if (!allEmbeds[defaultLang] && data.embeds) {
-      allEmbeds[defaultLang] = data.embeds;
-    }
+    // Escuchar todas las peticiones .m3u8 que se carguen en la página
+    const capturedStreams = [];
+    page.on('response', (response) => {
+      const url = response.url();
+      if (url.includes('.m3u8') || url.includes('master.txt')) {
+        capturedStreams.push({ url, ts: Date.now() });
+      }
+    });
 
-    // Recorrer los idiomas y servidores
-    for (const [lang, servers] of Object.entries(allEmbeds)) {
-      const targetLang = (lang === 'latino' || lang === 'español' || lang === 'castellano')
-        ? 'latino'
-        : 'subtitulado';
+    const embedUrl = `${BASE}/embed/embed-final.html?id=${tmdbId}`;
+    await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-      for (const [serverName, urls] of Object.entries(servers)) {
-        const urlList = Array.isArray(urls) ? urls : [urls];
-        const firstUrl = urlList[0];
-        if (!firstUrl) continue;
+    // Esperar a que el embed cargue la lista de servidores
+    await new Promise(r => setTimeout(r, 7000));
 
-        const norm = normalizeName(serverName);
-        if (!norm) {
-          console.log(`[pelixplay] Ignorando servidor no permitido: ${serverName}`);
-          continue;
+    // Leer todos los servidores del <select> y los idiomas
+    const servers = await page.evaluate(() => {
+      const list = [];
+      const select = document.getElementById('server-select');
+      if (select) {
+        Array.from(select.options).forEach(opt => {
+          list.push({ value: opt.value, label: opt.textContent.trim() });
+        });
+      }
+      return list;
+    });
+
+    console.log('[pelixplay] Servidores detectados:', servers.map(s => s.value).join(', '));
+
+    // Filtrar solo los permitidos
+    const ALLOWED = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
+    const validServers = servers.filter(s => {
+      const base = normalizeName(s.value);
+      return base && ALLOWED.includes(base.toLowerCase());
+    });
+
+    console.log('[pelixplay] Servidores válidos:', validServers.map(s => s.value).join(', '));
+
+    // Para cada servidor válido: hacer clic y capturar el HLS
+    for (const srv of validServers) {
+      try {
+        console.log(`[pelixplay] Extrayendo: ${srv.value}`);
+
+        // Limpiar capturas previas y hacer clic en el servidor
+        capturedStreams.length = 0;
+
+        await page.evaluate((value) => {
+          const select = document.getElementById('server-select');
+          if (!select) return;
+          select.value = value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }, srv.value);
+
+        // Esperar a que se cargue el HLS (máx 12 s)
+        const startTime = Date.now();
+        while (capturedStreams.length === 0 && Date.now() - startTime < 12000) {
+          await new Promise(r => setTimeout(r, 500));
         }
 
-        if (!found[targetLang][norm]) {
-          found[targetLang][norm] = firstUrl;
-          console.log(`[pelixplay] OK ${targetLang}/${norm}: ${String(firstUrl).slice(0, 80)}`);
+        if (capturedStreams.length > 0) {
+          const hlsUrl = capturedStreams[0].url;
+          const name = normalizeName(srv.value) || srv.value;
+          found.latino[name] = hlsUrl;
+          console.log(`[pelixplay] OK latino/${name}: ${hlsUrl.slice(0, 80)}`);
+        } else {
+          console.log(`[pelixplay] Sin HLS para ${srv.value}`);
         }
+      } catch (err) {
+        console.warn(`[pelixplay] Error extrayendo ${srv.value}:`, err.message);
       }
     }
+
+    await browser.close();
+    browser = null;
 
     return found;
   } catch (e) {
     console.warn('[pelixplay] Error:', e.message);
+    if (browser) { try { await browser.close(); } catch (_) {} }
     return found;
   }
 }
@@ -80,7 +131,7 @@ function normalizeName(name) {
   const base = String(name).toLowerCase().replace(/[\s_-]+\d+$/, '');
   if (['streamwish', 'hglink', 'flaswish', 'wishfast', 'awish', 'embedwish'].includes(base)) return 'StreamWish';
   if (['vidmoly'].includes(base)) return 'Vidmoly';
-  if (['filelions', 'vidhide', 'vidhidepro', 'minochinos', 'callistanise', 'filemoon'].includes(base)) return 'FileLions';
+  if (['filelions', 'vidhide', 'vidhidepro', 'minochinos', 'callistanise'].includes(base)) return 'FileLions';
   return null;
 }
 
@@ -89,4 +140,4 @@ module.exports = {
   search: async (title, year, tmdbId, type) => scrapePelixplay(title, year, tmdbId, type)
 };
 
-console.log('[pelixplay] Provider cargado (API mode)');
+console.log('[pelixplay] Provider cargado (Puppeteer + HLS capture)');
