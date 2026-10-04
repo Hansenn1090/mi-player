@@ -81,13 +81,13 @@ app.get('/api/proxy', async (req, res) => {
 app.get('/api/health', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
 // ══════════════════════════════════════════════════════════════════════════
-// IMPORTS (solo los que realmente se usan)
+// IMPORTS (rutas correctas: "providers", NO "proveedores")
 // ══════════════════════════════════════════════════════════════════════════
 const { searchAllProviders } = require('./providers/registry');
 const { getTmdbInfo } = require('./core/tmdb');
 
 // ══════════════════════════════════════════════════════════════════════════
-// /api/servers — Busca en TODOS los providers y filtra solo los permitidos
+// /api/servers — Busca en todos los providers y devuelve los servidores
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/servers', async (req, res) => {
   const { id, type } = req.query;
@@ -96,7 +96,6 @@ app.get('/api/servers', async (req, res) => {
   try {
     const meta = await getTmdbInfo(id, type || 'movie');
     const servers = await searchAllProviders(meta.title, meta.year, id, type || 'movie');
-
     res.json({ servers, meta, _source: 'live' });
   } catch (err) {
     console.error('[servers] Error:', err.message);
@@ -105,7 +104,7 @@ app.get('/api/servers', async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// /api/extract — Extrae el .m3u8 real desde el embed con Puppeteer
+// /api/extract — Extrae el .m3u8 real con Puppeteer
 // ══════════════════════════════════════════════════════════════════════════
 app.get('/api/extract', async (req, res) => {
   const url = req.query.url;
