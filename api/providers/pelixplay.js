@@ -4,69 +4,96 @@ const cheerio = require('cheerio');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 const BASE = 'https://pelixplay.app';
 
-// ══════════════════════════════════════════════════════════════════════
-// Extrae los servidores de pelixplay.app
-// API interna que usa pelixplay: /api.php?action=details&id=XXX&type=movie
-// ══════════════════════════════════════════════════════════════════════
-async function search(title, year, tmdbId, type) {
+async function scrapePelixplay(title, year, tmdbId, type) {
+  const found = {};
+  if (!title) return found;
+  console.log('[pelixplay] Buscando:', title, year || '');
+
   try {
-    const apiParams = new URLSearchParams({
-      action: 'details',
-      id: tmdbId,
-      type: type || 'movie',
+    // 1) Buscar la película en el sitio
+    const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
+    const { data: searchHtml } = await axios.get(searchUrl, {
+      timeout: 12000,
+      headers: { 'User-Agent': UA, 'Referer': BASE + '/' },
+      validateStatus: s => s >= 200 && s < 400,
     });
 
-    // 1) Consultar la API pública de pelixplay
-    const apiUrl = `${BASE}/api.php?${apiParams.toString()}`;
-    const res = await axios.get(apiUrl, {
-      headers: {
-        'User-Agent': UA,
-        'Referer': `${BASE}/`,
-        'Accept': 'application/json',
-      },
-      timeout: 15000,
-    });
+    const $ = cheerio.load(searchHtml);
+    let detailUrl = null;
 
-    const data = res.data;
-    if (!data || !data.ok) return null;
+    // Buscar el link más parecido
+    const normalize = s => (s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
 
-    // 2) Normalizar la respuesta
-    const result = { latino: {}, subtitulado: {} };
+    const titleNorm = normalize(title);
+    const titleWords = titleNorm.split(' ').filter(w => w.length > 2);
 
-    // pelixplay devuelve all_embeds o embeds según la versión
-    const allEmbeds = data.all_embeds || { [data.language || 'latino']: data.embeds || {} };
-
-    for (const [lang, servers] of Object.entries(allEmbeds)) {
-      const targetLang = (lang === 'latino' || lang === 'español') ? 'latino' : 'subtitulado';
-      for (const [serverName, urls] of Object.entries(servers)) {
-        const urlList = Array.isArray(urls) ? urls : [urls];
-        const firstUrl = urlList[0];
-        if (!firstUrl) continue;
-
-        // Normalizar el nombre del servidor
-        const norm = normalizeName(serverName);
-        if (norm) {
-          result[targetLang][norm] = firstUrl;
-        }
+    $('a').each((i, el) => {
+      if (detailUrl) return;
+      const href = $(el).attr('href') || '';
+      if (!href.includes('/pelicula/') && !href.includes('/serie/')) return;
+      const text = normalize($(el).text());
+      const matches = titleWords.filter(w => text.includes(w));
+      if (matches.length >= Math.min(2, titleWords.length)) {
+        detailUrl = href.startsWith('http') ? href : BASE + href;
       }
+    });
+
+    if (!detailUrl) {
+      console.log('[pelixplay] No se encontró detalle');
+      return found;
     }
 
-    return result;
-  } catch (err) {
-    console.error('[pelixplay]', err.message);
-    return null;
+    // 2) Cargar la página de detalle
+    const { data: detailHtml } = await axios.get(detailUrl, {
+      timeout: 12000,
+      headers: { 'User-Agent': UA, 'Referer': BASE + '/' },
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    const $d = cheerio.load(detailHtml);
+
+    // 3) Extraer iframes de servidores
+    $d('iframe').each((i, el) => {
+      const src = $d(el).attr('src') || $d(el).attr('data-src');
+      if (!src) return;
+      let embedUrl = src;
+      if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
+      if (embedUrl.startsWith('/')) embedUrl = BASE + embedUrl;
+      if (!embedUrl.startsWith('http')) return;
+      if (/doubleclick|googlesyndication|google-analytics|youtube/i.test(embedUrl)) return;
+
+      const name = detectServerName(embedUrl);
+      if (!found.latino) found.latino = {};
+      if (!found.latino[name]) {
+        found.latino[name] = embedUrl;
+        console.log(`[pelixplay] OK latino/${name}: ${embedUrl.slice(0, 80)}`);
+      }
+    });
+
+    return found;
+  } catch (e) {
+    console.warn('[pelixplay] Error:', e.message);
+    return found;
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Normaliza el nombre del servidor al que espera el registry
-// ══════════════════════════════════════════════════════════════════════
-function normalizeName(name) {
-  const base = String(name).toLowerCase().replace(/[\s_-]+\d+$/, '');
-  if (['streamwish', 'hglink', 'flaswish', 'wishfast', 'awish'].includes(base)) return 'StreamWish';
-  if (['vidmoly'].includes(base)) return 'Vidmoly';
-  if (['filelions', 'vidhide', 'vidhidepro', 'minochinos', 'callistanise'].includes(base)) return 'FileLions';
-  return null; // Ignorar los demás
+function detectServerName(url) {
+  const u = (url || '').toLowerCase();
+  if (/streamwish|embedwish|hglink|filelions/i.test(u)) return 'StreamWish';
+  if (/vidhide|morencius|minochinos|callistanise/i.test(u)) return 'FileLions';
+  if (/vidmoly/i.test(u)) return 'Vidmoly';
+  if (/voe\.sx|voe\.de|voe\.bar/i.test(u)) return 'VOE';
+  if (/vimeos/i.test(u)) return 'Vimeos';
+  if (/filemoon|moonplayer/i.test(u)) return 'FileMoon';
+  if (/dood/i.test(u)) return 'DoodStream';
+  return 'Servidor';
 }
 
-module.exports = { search };
+module.exports = {
+  scrapePelixplay,
+  search: async (title, year, tmdbId, type) => scrapePelixplay(title, year, tmdbId, type)
+};
+
+console.log('[pelixplay] Provider cargado');
