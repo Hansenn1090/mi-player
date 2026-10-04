@@ -9,12 +9,33 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 // LISTA DE SITIOS A PROBAR (en orden de prioridad)
 // ══════════════════════════════════════════════════════════════════════════
 const SITES = [
+  // Los que ya sabemos que pueden funcionar
+  { name: 'pelispedia.casa', base: 'https://pelispedia.casa', searchPath: '/?s=', detailPaths: ['/pelicula/', '/peliculas/', '/serie/'] },
+  { name: 'pelisplushd.to', base: 'https://pelisplushd.to', searchPath: '/search?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'repelis24.ing', base: 'https://repelis24.ing', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
   { name: 'pelispedia',   base: 'https://pelispedia.casa',  searchPath: '/?s=',  detailPaths: ['/pelicula/', '/peliculas/', '/serie/'] },
   { name: 'pelisplushd',  base: 'https://pelisplushd.bz',   searchPath: '/search?s=', detailPaths: ['/pelicula/', '/serie/'] },
   { name: 'cuevana3',     base: 'https://cuevana3.ch',      searchPath: '/?s=',  detailPaths: ['/pelicula/'] },
   { name: 'gnula',        base: 'https://gnula.nu',         searchPath: '/?s=',  detailPaths: ['/pelicula/', '/serie/'] },
   { name: 'repelisplus',  base: 'https://repelisplus.lat',  searchPath: '/?s=',  detailPaths: ['/pelicula/', '/serie/'] },
   { name: 'cinecalidad',  base: 'https://cinecalidad.fi',   searchPath: '/?s=',  detailPaths: ['/pelicula/', '/serie/'] },
+  
+  // Los que nos diste para probar
+  { name: 'lamovie.org', base: 'https://lamovie.org', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'cinecalidad.am', base: 'https://cinecalidad.am', searchPath: '/?s=', detailPaths: ['/pelicula/', '/ver-pelicula/'] },
+  { name: 'cinecalidad.my', base: 'https://www.cinecalidad.my', searchPath: '/?s=', detailPaths: ['/pelicula/', '/ver-pelicula/'] },
+  { name: 'cinecalidad.shop', base: 'https://cinecalidad.shop', searchPath: '/?s=', detailPaths: ['/pelicula/', '/ver-pelicula/'] },
+  { name: 'pelisgratishds.com', base: 'https://pelisgratishds.com', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'entrepeliculasyseries.nz', base: 'https://entrepeliculasyseries.nz', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'pelispedia.is', base: 'https://pelispedia.is', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'pelisplay.mom', base: 'https://pelisplay.mom', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'miradetodo.lol', base: 'https://miradetodo.lol', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'pelisplay.cfd', base: 'https://pelisplay.cfd', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'poseidonhd2.co', base: 'https://www.poseidonhd2.co', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'pelis24.buzz', base: 'https://pelis24.buzz', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'pelicinehd.com', base: 'https://pelicinehd.com', searchPath: '/?s=', detailPaths: ['/movies/', '/pelicula/'] },
+  { name: 'pelisflixhd1.top', base: 'https://pelisflixhd1.top', searchPath: '/?s=', detailPaths: ['/pelicula/', '/serie/'] },
+  { name: 'cineplus123.org', base: 'https://cineplus123.org', searchPath: '/?s=', detailPaths: ['/peliculas/', '/pelicula/'] },
 ];
 
 function getHeaders(extra = {}) {
@@ -57,7 +78,7 @@ async function searchSite(site, title, year) {
     console.log(`[${site.name}] Buscando:`, searchUrl);
 
     const { data: searchHtml } = await axios.get(searchUrl, {
-      timeout: 12000,
+      timeout: 10000,
       httpsAgent,
       headers: getHeaders({ 'Referer': site.base + '/' }),
       maxRedirects: 5,
@@ -93,7 +114,7 @@ async function searchSite(site, title, year) {
     console.log(`[${site.name}] Detalle:`, detailUrl);
 
     const { data: detailHtml } = await axios.get(detailUrl, {
-      timeout: 12000,
+      timeout: 10000,
       httpsAgent,
       headers: getHeaders({ 'Referer': searchUrl }),
       validateStatus: s => s >= 200 && s < 400,
