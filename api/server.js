@@ -1,16 +1,17 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
-const cheerio = require('cheerio');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 const PORT = process.env.PORT || 10000;
 
-// ═══ CONFIGURACIÓN DEL PROXY (CRÍTICO) ═══
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
+// ══════════════════════════════════════════════════════════════════════════
+// PROXY (CRÍTICO para que el video reproduzca sin errores CORS)
+// ══════════════════════════════════════════════════════════════════════════
 app.get('/api/proxy', async (req, res) => {
   const targetUrl = req.query.url;
   const referer = req.query.referer || targetUrl;
@@ -59,7 +60,6 @@ app.get('/api/proxy', async (req, res) => {
       return res.send(rewritten);
     }
 
-    // Para segmentos .ts o .mp4
     res.setHeader('Content-Type', contentType || 'video/mp2t');
     res.setHeader('Access-Control-Allow-Origin', '*');
     if (response.headers.get('content-length')) res.setHeader('Content-Length', response.headers.get('content-length'));
@@ -75,58 +75,52 @@ app.get('/api/proxy', async (req, res) => {
   }
 });
 
-// ═══ ENDPOINTS DE LA API ═══
+// ══════════════════════════════════════════════════════════════════════════
+// HEALTH
+// ══════════════════════════════════════════════════════════════════════════
 app.get('/api/health', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
-// Importar tus scrapers desde la carpeta API/proveedores
-const pelisPedia  = require('./providers/pelispedia');
-const pelixplay   = require('./providers/pelixplay');
-const cineplus123 = require('./providers/cineplus123');
-const poseidonhd2 = require('./providers/poseidonhd2');
-const unlimplay   = require('./providers/unlimplay');
+// ══════════════════════════════════════════════════════════════════════════
+// IMPORTS (solo los que realmente se usan)
+// ══════════════════════════════════════════════════════════════════════════
 const { searchAllProviders } = require('./providers/registry');
-const { getTmdbInfo } = require('./centro/tmdb');
+const { getTmdbInfo } = require('./core/tmdb');
 
+// ══════════════════════════════════════════════════════════════════════════
+// /api/servers — Busca en TODOS los providers y filtra solo los permitidos
+// ══════════════════════════════════════════════════════════════════════════
 app.get('/api/servers', async (req, res) => {
   const { id, type } = req.query;
   if (!id) return res.status(400).json({ error: 'Falta id' });
-  
+
   try {
     const meta = await getTmdbInfo(id, type || 'movie');
-    const servers = await scrapePelisPedia(meta.title, meta.year);
-    
-    // Filtrar solo los servidores que queremos
-    const allowed = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
-    const filtered = { latino: {}, subtitulado: {} };
-    
-    for (const lang in servers) {
-      for (const srv in servers[lang]) {
-        const baseName = srv.toLowerCase().replace(/[\s_-]+\d+$/, '');
-        if (allowed.includes(baseName)) {
-          filtered[lang][srv] = servers[lang][srv];
-        }
-      }
-    }
-    
-    res.json({ servers: filtered, meta, _source: 'live' });
+    const servers = await searchAllProviders(meta.title, meta.year, id, type || 'movie');
+
+    res.json({ servers, meta, _source: 'live' });
   } catch (err) {
+    console.error('[servers] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// /api/extract — Extrae el .m3u8 real desde el embed con Puppeteer
+// ══════════════════════════════════════════════════════════════════════════
 app.get('/api/extract', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'Falta url' });
-  
+
   try {
-    // Aquí va tu lógica de extracción (puppeteer-extractor.js)
-    const { extractStream } = require('./centro/puppeteer-extractor');
+    const { extractStream } = require('./core/puppeteer-extractor');
     const result = await extractStream(url);
     if (!result || !result.stream) return res.status(404).json({ error: 'No extraído' });
     res.json(result);
   } catch (err) {
+    console.error('[extract] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════
 app.listen(PORT, () => console.log(`🎬 Backend escuchando en puerto ${PORT}`));
