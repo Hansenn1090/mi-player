@@ -79,7 +79,12 @@ app.get('/api/proxy', async (req, res) => {
 app.get('/api/health', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
 // Importar tus scrapers desde la carpeta API/proveedores
-const { scrapePelisPedia } = require('./proveedores/pelispedia');
+const pelisPedia  = require('./providers/pelispedia');
+const pelixplay   = require('./providers/pelixplay');
+const cineplus123 = require('./providers/cineplus123');
+const poseidonhd2 = require('./providers/poseidonhd2');
+const unlimplay   = require('./providers/unlimplay');
+const { searchAllProviders } = require('./providers/registry');
 const { getTmdbInfo } = require('./centro/tmdb');
 
 app.get('/api/servers', async (req, res) => {
