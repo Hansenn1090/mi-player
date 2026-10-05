@@ -1,25 +1,28 @@
-// core/extractors/cinemaos.js
-const wreq = require('wreq-js'); // Usamos wreq-js en lugar de node-fetch
+// ══════════════════════════════════════════════════════════════════════════
+// providers/cinemaos.js
+// Provider que envuelve el extractor de CinemaOS
+// ══════════════════════════════════════════════════════════════════════════
 
-const BASE = 'https://cinemaos.tech';
+const { extractCinemaOS } = require('../core/extractors/cinemaos');
 
-async function extractCinemaOS(tmdbId, type = 'movie') {
-  const url = `${BASE}/player/${tmdbId}?theme=ffffff&autoPlay=true&title=false`;
+async function getCinemaOSServers(tmdbId, type = 'movie') {
+  try {
+    const { mpd, subtitles } = await extractCinemaOS(tmdbId, type);
+    if (!mpd) return { servers: {} };
 
-  // wreq-js imita la huella TLS de un navegador real
-  const res = await wreq(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    redirect: 'follow',
-  });
-
-  if (!res.ok) throw new Error(`CinemaOS respondió ${res.status}`);
-
-  const html = await res.text();
-
-  // ... el resto de tu lógica de extracción (regex para .mpd y subtítulos) permanece igual ...
-  // ...
+    return {
+      servers: {
+        CinemaOS: {
+          url: mpd,
+          kind: 'dash',
+          subtitles,
+        },
+      },
+    };
+  } catch (err) {
+    console.error('[cinemaos provider]', err.message);
+    return { servers: {} };
+  }
 }
+
+module.exports = { getCinemaOSServers };
