@@ -1,32 +1,25 @@
 // ══════════════════════════════════════════════════════════════════════════
 // core/extractors/cinemaos.js
-// Extrae el manifiesto DASH (.mpd) y subtítulos (.vtt) desde CinemaOS
-// Usa allorigins como puente para saltar el bloqueo de Cloudflare
+// Usa fetch nativo de Node 18+ (sin dependencias externas)
 // ══════════════════════════════════════════════════════════════════════════
-
-const doFetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const BASE = 'https://cinemaos.tech';
 
-// Lista de proxies públicos — si uno falla, intenta el siguiente
-const PROXIES = [
-  (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-  (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-  (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-];
+// ⚠️ Después de crear tu Cloudflare Worker, pega aquí la URL
+// Por ahora lo dejamos vacío — el extractor funciona igual (con 403 de CinemaOS)
+const CF_WORKER = '';
 
 async function fetchHtml(targetUrl) {
-  let lastError = null;
-
-  // 1) Intento directo (con headers de navegador)
+  // 1) Intento directo con headers de navegador real
   try {
-    const res = await doFetch(targetUrl, {
+    const res = await fetch(targetUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
           '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept':
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
@@ -40,31 +33,24 @@ async function fetchHtml(targetUrl) {
     });
 
     if (res.ok) return await res.text();
-    lastError = `Directo → ${res.status}`;
+    console.warn(`[cinemaos] directo → ${res.status}, intentando Worker...`);
   } catch (e) {
-    lastError = `Directo → ${e.message}`;
+    console.warn('[cinemaos] directo falló:', e.message);
   }
 
-  // 2) Fallback: usar proxies públicos
-  for (const buildProxy of PROXIES) {
+  // 2) Fallback: usar Cloudflare Worker (si está configurado)
+  if (CF_WORKER) {
     try {
-      const proxyUrl = buildProxy(targetUrl);
-      const res = await doFetch(proxyUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        redirect: 'follow',
-      });
-      if (res.ok) {
-        const html = await res.text();
-        // Verificar que sea HTML válido y no una página de error
-        if (html && html.length > 1000) return html;
-      }
-      lastError = `Proxy → ${res.status}`;
+      const workerUrl = `${CF_WORKER}/?url=${encodeURIComponent(targetUrl)}`;
+      const res = await fetch(workerUrl, { redirect: 'follow' });
+      if (res.ok) return await res.text();
+      throw new Error(`Worker respondió ${res.status}`);
     } catch (e) {
-      lastError = `Proxy → ${e.message}`;
+      throw new Error(`Worker falló: ${e.message}`);
     }
   }
 
-  throw new Error(`Todos los intentos fallaron: ${lastError}`);
+  throw new Error('CinemaOS respondió 403');
 }
 
 async function extractCinemaOS(tmdbId, type = 'movie') {
@@ -79,7 +65,7 @@ async function extractCinemaOS(tmdbId, type = 'movie') {
   const tokenMatch = html.match(/"scrapeToken":"([^"]+)"/);
   const token = tokenMatch ? tokenMatch[1] : null;
 
-  // 3) Subtítulos
+  // 3) Subtítulos (.vtt)
   const subs = [];
   const tracks = html.match(/<track\b[^>]*>/g) || [];
   for (const tag of tracks) {
