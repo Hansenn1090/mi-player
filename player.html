@@ -4,11 +4,12 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, user-scalable=no" name="viewport"/>
 <title>UnLim Play</title>
+<script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
-<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
 <style>
   html,body{margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;height:100%}
   #stage{position:fixed;inset:0;background:#000;z-index:1}
+  #stage iframe.ulp-iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:5;pointer-events:auto;background:#000}
   #stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
   #backdrop{position:fixed;inset:0;z-index:0;background-size:cover;background-position:center top;filter:brightness(.4) blur(2px);transition:opacity .6s}
   #backdrop::before{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.85) 100%)}
@@ -19,22 +20,21 @@
   #center-play svg{margin-left:5px}
   #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;pointer-events:none;transition:opacity .3s}
   #chip.hls{background:rgba(34,197,94,.25);border-color:rgba(34,197,94,.5);color:#bbf7d0}
-  #chip.dash{background:rgba(168,85,247,.25);border-color:rgba(168,85,247,.5);color:#e9d5ff}
+  #chip.mp4{background:rgba(59,130,246,.25);border-color:rgba(59,130,246,.5);color:#bfdbfe}
+  #chip.iframe{background:rgba(148,163,184,.25);border-color:rgba(148,163,184,.5);color:#e2e8f0}
   #chip.hidden{opacity:0}
   #btn-servers{position:fixed;top:14px;right:14px;z-index:40;padding:8px 14px;border-radius:10px;background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);display:flex;align-items:center;gap:6px}
   #btn-servers:hover{background:rgba(40,44,60,.95)}
   #panel-servers{position:fixed;top:60px;right:14px;z-index:40;width:300px;max-height:70vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
   #panel-servers.on{display:block}
   #panel-servers h3{font-size:11px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px 0}
-  #panel-subs,#panel-audio{position:fixed;top:60px;right:14px;z-index:40;width:280px;max-height:60vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
-  #panel-subs.on,#panel-audio.on{display:block}
-  #panel-subs h3,#panel-audio h3{font-size:11px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px 0}
   .srv-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 12px;margin-bottom:6px;border-radius:8px;background:rgba(43,50,63,.6);border:1px solid rgba(255,255,255,.08);color:#d1d5db;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;text-align:left}
   .srv-btn:hover{background:rgba(60,70,88,.9);color:#fff}
   .srv-btn.active{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
   .srv-kind{font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;line-height:1}
   .kind-hls{background:rgba(34,197,94,.25);color:#86efac;border:1px solid rgba(34,197,94,.5)}
-  .kind-dash{background:rgba(168,85,247,.25);color:#e9d5ff;border:1px solid rgba(168,85,247,.5)}
+  .kind-mp4{background:rgba(59,130,246,.25);color:#93c5fd;border:1px solid rgba(59,130,246,.5)}
+  .kind-iframe{background:rgba(148,163,184,.25);color:#cbd5e1;border:1px solid rgba(148,163,184,.4)}
   #hud{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:24px 20px 16px;background:linear-gradient(to top,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 60%,transparent 100%);transition:opacity .35s,transform .35s}
   #hud.hidden{opacity:0;pointer-events:none;transform:translateY(20px)}
   #hud-row{display:flex;align-items:center;gap:16px;margin-bottom:14px}
@@ -43,12 +43,11 @@
   #info{flex:1;min-width:0}
   #title{font-size:18px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #meta{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #controls{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap}
+  #controls{display:flex;align-items:center;gap:8px;flex-shrink:0}
   .ctrl-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.75);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
   .ctrl-btn:hover{background:rgba(255,255,255,.12);color:#fff}
   .ctrl-btn.play{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
   .ctrl-btn.play:hover{background:rgba(37,99,235,.4);color:#fff}
-  .ctrl-btn.icon{padding:8px 10px}
   .key-badge{background:rgba(255,255,255,.85);color:#000;font-size:9px;font-weight:800;border-radius:3px;padding:2px 5px;line-height:1}
   #scrubber-row{display:flex;align-items:center;gap:12px}
   #time-cur,#time-dur{font-size:12px;font-family:ui-monospace,monospace;color:#fff;min-width:48px;text-align:center}
@@ -70,7 +69,7 @@
     #hud-row{flex-wrap:wrap}
     #controls{width:100%;justify-content:flex-end;margin-top:8px}
     #center-play{width:70px;height:70px}
-    #panel-servers,#panel-subs,#panel-audio{width:calc(100vw - 28px);right:14px;left:14px}
+    #panel-servers{width:calc(100vw - 28px);right:14px;left:14px}
   }
 </style>
 </head>
@@ -88,16 +87,6 @@
 <div id="panel-servers">
   <h3>Servidores disponibles</h3>
   <div id="servers-list"></div>
-</div>
-
-<div id="panel-subs">
-  <h3>Subtítulos</h3>
-  <div id="subs-list"></div>
-</div>
-
-<div id="panel-audio">
-  <h3>Idioma de audio</h3>
-  <div id="audio-list"></div>
 </div>
 
 <div id="center-play">
@@ -118,8 +107,6 @@
       <button class="ctrl-btn play" id="btn-play"><span class="key-badge">OK</span> Reproducir</button>
       <button class="ctrl-btn" id="btn-rew"><span class="key-badge">◀</span> Detrás</button>
       <button class="ctrl-btn" id="btn-fwd"><span class="key-badge">▶</span> Adelante</button>
-      <button class="ctrl-btn icon" id="btn-cc" title="Subtítulos">CC</button>
-      <button class="ctrl-btn icon" id="btn-audio" title="Idioma de audio">🔊</button>
     </div>
   </div>
   <div id="scrubber-row">
@@ -135,51 +122,64 @@
 <button id="show-hud">▲ Mostrar controles</button>
 
 <script>
-// ══════════════════════════════════════════════════════════════════════════
-// CONFIGURACIÓN — API_BASE apunta a tu backend en Render
-// ══════════════════════════════════════════════════════════════════════════
-const API_BASE = 'https://mi-player-api.onrender.com';
-
-const ALLOWED_PROVIDERS = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
+/* ══════════════════════════════════════════════════════════════════════════
+   ⚠️ CONFIGURACIÓN — CAMBIAR ESTAS 2 URLs
+   ══════════════════════════════════════════════════════════════════════════ */
+const API_BASE   = 'https://TU-APP.onrender.com';        // ← Tu URL de Render
+const PROXY_BASE = 'https://TU-WORKER.workers.dev';      // ← Tu URL de Cloudflare Worker
+/* ══════════════════════════════════════════════════════════════════════════ */
 
 const state = {
   isPlaying:false, currentTime:0, duration:0,
-  isSeeking:false, currentSrv:null,
-  kind:'hls', subtitles:[], audioTracks:[], activeSub:null,
+  isSeeking:false, currentLang:null, currentSrv:null, currentKind:null,
 };
+let embeds = {};
 let _extracted = {};
-let _currentVideoEl = null, _currentHls = null, _currentDash = null;
-let _idleTimer = null;
+let _currentFrame = null, _currentVideoEl = null, _currentHls = null;
 
 const $ = id => document.getElementById(id);
 const els = {
   stage:$('stage'), backdrop:$('backdrop'), chip:$('chip'),
-  panelServers:$('panel-servers'), serversList:$('servers-list'),
-  panelSubs:$('panel-subs'), subsList:$('subs-list'),
-  panelAudio:$('panel-audio'), audioList:$('audio-list'),
-  btnCC:$('btn-cc'), btnAudio:$('btn-audio'),
-  centerPlay:$('center-play'), loading:$('loading'), loadingText:$('loading-text'),
-  toast:$('toast'), hud:$('hud'), showHud:$('show-hud'),
+  btnServers:$('btn-servers'), panelServers:$('panel-servers'), serversList:$('servers-list'),
+  centerPlay:$('center-play'),
+  loading:$('loading'), loadingText:$('loading-text'), toast:$('toast'),
+  hud:$('hud'), showHud:$('show-hud'),
   posterImg:$('poster-img'), title:$('title'), meta:$('meta'),
   btnPlay:$('btn-play'), btnRew:$('btn-rew'), btnFwd:$('btn-fwd'),
   timeCur:$('time-cur'), timeDur:$('time-dur'),
   scrubber:$('scrubber'), scrubberFill:$('scrubber-fill'),
 };
 
-const PROVIDER_DISPLAY = { streamwish:'StreamWish', vidmoly:'Vidmoly', filelions:'FileLions', vidhide:'VidHide' };
+const LANG_ORDER = ['latino','español','subtitulado'];
+const PROVIDER_DISPLAY = {
+  vimeos:'Vimeos', voe:'VOE', streamwish:'StreamWish', vidhide:'VidHide',
+  filelions:'FileLions', filemoon:'FileMoon', doodstream:'DoodStream',
+  fembed:'Fembed', streamtape:'StreamTape', mixdrop:'MixDrop', okru:'OkRu',
+  uqload:'Uqload', vidspeed:'VidSpeed', vidmoly:'Vidmoly',
+  mp4upload:'Mp4Upload', netu:'Netu', fastream:'Fastream', xpass:'Xpass',
+};
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
 function normKey(n){
   let b = (n||'').toLowerCase().replace(/[\s_-]+\d+$/,'');
-  if (['hglink','flaswish','wishfast','awish','embedwish'].includes(b)) return 'streamwish';
-  if (['filelions','minochinos','vihide','vidhidepro','callistanise'].includes(b)) return 'vidhide';
+  if (['hglink','flaswish','wishfast','awish'].includes(b)) return 'streamwish';
+  if (['filelions','minochinos','vihide','vidhidepro','callistanise','hgcloud','earnvids','masukesting','morencius'].includes(b)) return 'vidhide';
+  if (['dood','doodcx','doodpm','doodto','doodla','d0000d'].includes(b)) return 'doodstream';
   return b;
 }
 function trueBase(n){
   let b=n||'',p;
   do{p=b;b=b.replace(/[\s_-]+\d+$/,'').replace(/(?<=[a-zA-Z]{3})\d+$/,'');}while(b!==p);
   return b;
+}
+const HLS_RE = [/\.m3u8(\?|$)/i, /master\.txt(\?|$)/i];
+const MP4_RE = [/\.mp4(\?|$)/i, /\.webm(\?|$)/i];
+function detectByUrl(url){
+  if (!url) return null;
+  for (const re of HLS_RE) if (re.test(url)) return 'hls';
+  for (const re of MP4_RE) if (re.test(url)) return 'mp4';
+  return null;
 }
 
 function showToast(m, d){
@@ -201,127 +201,161 @@ function setChip(k){
   if (!k){ els.chip.classList.add('hidden'); return; }
   els.chip.className = k;
   els.chip.classList.remove('hidden');
-  els.chip.textContent = k === 'dash' ? '● DASH nativo' : '● HLS nativo';
+  els.chip.textContent = k==='hls' ? '● HLS nativo' : k==='mp4' ? '● MP4 nativo' : '● iframe externo';
 }
 function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.remove('on'); }
 function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
 
-async function extractOneServer(name, embedUrl){
-  showLoading('Extrayendo ' + cap(name) + '…');
+/* ══════════════════════════════════════════════════════════════════════════
+   Extracción desde Render
+   ══════════════════════════════════════════════════════════════════════════ */
+async function extractFromBackend(embedUrl){
   try {
     const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) return null;
     const data = await r.json();
-    if (!data.stream) throw new Error('Sin stream');
-    return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer };
-  } catch(e) {
-    console.warn(`[extract] ${name}:`, e.message);
-    return null;
-  } finally { hideLoading(); }
+    if (data.error || !data.stream) return null;
+    return { stream:data.stream, kind:data.kind || 'hls', referer:data.referer };
+  } catch(e){ return null; }
 }
 
-function makeVideoEl(){
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
-  const vid = document.createElement('video');
-  vid.playsInline=true; vid.preload='metadata'; vid.controls=false;
-  wrap.appendChild(vid);
-  els.stage.appendChild(wrap);
-  if (_currentVideoEl) _currentVideoEl.parentElement?.remove();
-  if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls=null; }
-  if (_currentDash){ try{ _currentDash.reset(); }catch(_){} _currentDash=null; }
-  _currentVideoEl = vid;
-  return vid;
+async function extractAllServers(srvs){
+  const entries = Object.entries(srvs);
+  const extracted = {};
+  for (let i = 0; i < entries.length; i++){
+    const name = entries[i][0];
+    const url = entries[i][1];
+    const byUrl = detectByUrl(url);
+    if (byUrl){
+      extracted[name] = { url, stream:url, kind:byUrl, referer:url };
+      continue;
+    }
+    showLoading('Extrayendo ' + (i+1) + '/' + entries.length + ': ' + cap(name) + '…');
+    const res = await extractFromBackend(url);
+    if (res){
+      extracted[name] = { url, stream:res.stream, kind:res.kind, referer:res.referer };
+    } else {
+      extracted[name] = { url, stream:null, kind:'iframe', referer:url };
+    }
+  }
+  hideLoading();
+  _extracted = extracted;
 }
-function wireVideoEvents(vid){
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Montaje del reproductor
+   ══════════════════════════════════════════════════════════════════════════ */
+function teardown(){
+  if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
+  if (_currentFrame){ try{ _currentFrame.remove(); }catch(_){} _currentFrame = null; }
+  _currentVideoEl = null;
+}
+function attachVideo(vid){
   vid.addEventListener('loadedmetadata', () => { state.duration = vid.duration||0; updateScrubber(); hideLoading(); });
   vid.addEventListener('timeupdate', () => { state.currentTime = vid.currentTime||0; if (!state.isSeeking) updateScrubber(); });
   vid.addEventListener('play',  () => { state.isPlaying=true; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Pausar'; });
   vid.addEventListener('pause', () => { state.isPlaying=false; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Reproducir'; });
 }
 
-function mountHls(url){
-  const vid = makeVideoEl();
-  wireVideoEvents(vid);
-  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(url);
+function mountHls(url, referer){
+  state.currentKind = 'hls';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
+  const vid = document.createElement('video');
+  vid.playsInline=true; vid.preload='metadata'; vid.controls=false;
+  wrap.appendChild(vid);
+  els.stage.appendChild(wrap);
+  _currentFrame = wrap; _currentVideoEl = vid;
+  attachVideo(vid);
+
+  const ref = referer || url;
+  // ⚠️ URL por Cloudflare Worker (más rápido + cache)
+  const proxyUrl = PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  console.log('[HLS] Proxy URL:', proxyUrl.slice(0, 120));
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()){
-    const hls = new Hls({ maxBufferLength: 30, startLevel: -1, enableWorker: true });
+    const hls = new Hls({ maxBufferLength:30, startLevel:-1, enableWorker:true });
     _currentHls = hls;
     hls.loadSource(proxyUrl);
     hls.attachMedia(vid);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => { hideLoading(); vid.play().catch(()=>{}); });
-    hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal){ hideLoading(); tryNextServer(); } });
+
+    const loadTimeout = setTimeout(() => {
+      console.warn('[HLS] Timeout');
+      showToast('El stream tarda. Probando otro…');
+      hideLoading();
+      tryNextServer();
+    }, 25000);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      clearTimeout(loadTimeout);
+      hideLoading();
+      vid.play().catch(()=>{});
+    });
+    hls.on(Hls.Events.ERROR, (_, d) => {
+      if (d.fatal){
+        clearTimeout(loadTimeout);
+        console.warn('[HLS] Error:', d.details);
+        showToast('Error, probando siguiente…');
+        hideLoading();
+        tryNextServer();
+      }
+    });
   } else if (vid.canPlayType('application/vnd.apple.mpegurl')){
     vid.src = proxyUrl; vid.load();
     vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
+    vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
   }
 }
 
-function mountDash(mpdUrl, subs){
-  const vid = makeVideoEl();
-  wireVideoEvents(vid);
-  const proxyUrl = API_BASE + '/api/proxy?url=' + encodeURIComponent(mpdUrl) + '&referer=' + encodeURIComponent(mpdUrl);
+function mountMp4(url, referer){
+  state.currentKind = 'mp4';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
+  const vid = document.createElement('video');
+  vid.playsInline=true; vid.preload='metadata'; vid.controls=false;
+  wrap.appendChild(vid);
+  els.stage.appendChild(wrap);
+  _currentFrame = wrap; _currentVideoEl = vid;
+  attachVideo(vid);
 
-  const player = dashjs.MediaPlayer().create();
-  player.updateSettings({ streaming:{ abr:{ autoSwitchBitrate:{ video:true, audio:true } } } });
-  _currentDash = player;
-  player.initialize(vid, proxyUrl, true);
-
-  player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-    hideLoading();
-    vid.play().catch(()=>{});
-    state.audioTracks = player.getTracksFor('audio') || [];
-    renderAudioList();
-    state.subtitles = subs || [];
-    renderSubsList();
-  });
-
-  player.on(dashjs.MediaPlayer.events.ERROR, (e) => {
-    console.warn('[dash] error', e);
-    hideLoading();
-    tryNextServer();
-  });
-
-  vid._dashPlayer = player;
+  const ref = referer || url;
+  const proxyUrl = PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  vid.src = proxyUrl; vid.load();
+  vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
+  vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
 }
 
-async function loadServer(name){
+function mountIframe(url){
+  state.currentKind = 'iframe';
+  const iframe = document.createElement('iframe');
+  iframe.className = 'ulp-iframe';
+  iframe.allow = 'autoplay *; fullscreen *; encrypted-media *; picture-in-picture *';
+  iframe.allowFullscreen = true;
+  iframe.setAttribute('allowfullscreen','');
+  iframe.setAttribute('referrerpolicy','no-referrer');
+  iframe.src = url;
+  iframe.addEventListener('load', () => hideLoading());
+  els.stage.appendChild(iframe);
+  _currentFrame = iframe; _currentVideoEl = null;
+  state.duration = 0; state.currentTime = 0;
+  updateScrubber();
+}
+
+function loadServer(name){
   const srv = _extracted[name];
   if (!srv) return;
   state.currentSrv = name;
   const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
-  showLoading('Cargando ' + disp + '…');
-
+  const label = srv.kind === 'hls' ? 'HLS' : srv.kind === 'mp4' ? 'MP4' : 'iframe';
+  showLoading('Cargando ' + disp + ' (' + label + ')…');
+  setChip(srv.kind);
+  teardown();
   els.centerPlay.classList.add('hidden');
   els.backdrop.classList.add('hidden');
-  state.subtitles = []; state.audioTracks = []; state.activeSub = null;
-  renderSubsList(); renderAudioList();
 
-  if (srv.kind === 'dash') {
-    setChip('dash');
-    state.kind = 'dash';
-    mountDash(srv.stream, srv.subtitles);
-    renderServersList();
-    return;
-  }
-
-  setChip('hls');
-  state.kind = 'hls';
-  let streamUrl = srv.stream;
-  if (!streamUrl) {
-    const extracted = await extractOneServer(name, srv.url);
-    if (!extracted) {
-      showToast('No se pudo extraer ' + name + '. Probando siguiente...');
-      tryNextServer();
-      return;
-    }
-    srv.stream = extracted.stream;
-    srv.kind = extracted.kind;
-    srv.referer = extracted.referer;
-    streamUrl = extracted.stream;
-  }
-  mountHls(streamUrl);
+  if (srv.stream && srv.kind === 'hls') mountHls(srv.stream, srv.referer);
+  else if (srv.stream && srv.kind === 'mp4') mountMp4(srv.stream, srv.referer);
+  else mountIframe(srv.url);
   renderServersList();
 }
 
@@ -338,101 +372,33 @@ function tryNextServer(){
 
 function autoLoadBest(){
   const names = Object.keys(_extracted);
-  if (!names.length){ showToast('Sin servidores disponibles'); return; }
+  if (!names.length) return;
+  const prio = { hls:0, mp4:1, iframe:2 };
+  names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
   loadServer(names[0]);
 }
 
 function renderServersList(){
   els.serversList.innerHTML = '';
-  Object.keys(_extracted).forEach(name => {
-    const srv = _extracted[name];
+  const names = Object.keys(_extracted);
+  const prio = { hls:0, mp4:1, iframe:2 };
+  names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
+  names.forEach(name => {
+    const kind = _extracted[name].kind;
     const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
-    const kind = srv.kind === 'dash' ? 'dash' : 'hls';
-    const kindLabel = kind === 'dash' ? 'DASH' : 'HLS';
     const btn = document.createElement('button');
     btn.className = 'srv-btn' + (name === state.currentSrv ? ' active' : '');
-    btn.innerHTML = '<span>' + esc(disp) + '</span><span class="srv-kind kind-' + kind + '">' + kindLabel + '</span>';
-    btn.onclick = () => { loadServer(name); closeAllPanels(); };
+    btn.innerHTML = '<span>' + esc(disp) + '</span><span class="srv-kind kind-' + kind + '">' + kind.toUpperCase() + '</span>';
+    btn.onclick = () => { loadServer(name); els.panelServers.classList.remove('on'); };
     els.serversList.appendChild(btn);
   });
-}
-
-function renderSubsList(){
-  els.subsList.innerHTML = '';
-  const off = document.createElement('button');
-  off.className = 'srv-btn' + (state.activeSub === null ? ' active' : '');
-  off.innerHTML = '<span>Desactivado</span>';
-  off.onclick = () => { disableSubs(); state.activeSub = null; renderSubsList(); closeAllPanels(); };
-  els.subsList.appendChild(off);
-
-  state.subtitles.forEach((sub, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'srv-btn' + (state.activeSub === i ? ' active' : '');
-    btn.innerHTML = '<span>' + esc(sub.label) + '</span>';
-    btn.onclick = () => { enableSub(i); state.activeSub = i; renderSubsList(); closeAllPanels(); };
-    els.subsList.appendChild(btn);
-  });
-}
-function disableSubs(){
-  if (!_currentVideoEl) return;
-  [..._currentVideoEl.querySelectorAll('track')].forEach(t => t.remove());
-  [..._currentVideoEl.textTracks].forEach(t => t.mode = 'disabled');
-}
-function enableSub(idx){
-  if (!_currentVideoEl) return;
-  disableSubs();
-  const sub = state.subtitles[idx];
-  if (!sub) return;
-  const track = document.createElement('track');
-  track.kind = 'subtitles';
-  track.label = sub.label;
-  track.srclang = sub.lang || 'en';
-  track.src = sub.url;
-  track.default = true;
-  _currentVideoEl.appendChild(track);
-  setTimeout(() => {
-    for (const t of _currentVideoEl.textTracks) {
-      t.mode = (t.label === sub.label) ? 'showing' : 'disabled';
-    }
-  }, 100);
-  showToast('Subtítulo: ' + sub.label);
-}
-
-function renderAudioList(){
-  els.audioList.innerHTML = '';
-  if (!state.audioTracks.length){
-    els.audioList.innerHTML = '<div style="opacity:.5;font-size:12px;padding:8px">Sin pistas de audio</div>';
-    return;
-  }
-  state.audioTracks.forEach((t, i) => {
-    const label = t.lang || (t.labels && t.labels[0] && t.labels[0].text) || ('Pista ' + (i+1));
-    const btn = document.createElement('button');
-    btn.className = 'srv-btn';
-    btn.innerHTML = '<span>' + esc(label) + '</span>';
-    btn.onclick = () => {
-      if (_currentVideoEl && _currentVideoEl._dashPlayer){
-        _currentVideoEl._dashPlayer.setCurrentTrack(t);
-        showToast('Audio: ' + label);
-      }
-      els.audioList.querySelectorAll('.srv-btn').forEach(x => x.classList.remove('active'));
-      btn.classList.add('active');
-      closeAllPanels();
-    };
-    els.audioList.appendChild(btn);
-  });
-}
-
-function closeAllPanels(){
-  els.panelServers.classList.remove('on');
-  els.panelSubs.classList.remove('on');
-  els.panelAudio.classList.remove('on');
 }
 
 function updateScrubber(){
   if (state.duration <= 0){
     els.scrubber.value = 0; els.scrubberFill.style.width = '0%';
     els.timeCur.textContent = fmt(state.currentTime);
-    els.timeDur.textContent = '00:00';
+    els.timeDur.textContent = state.currentKind === 'iframe' ? '—' : '00:00';
     return;
   }
   const pct = Math.min(Math.max((state.currentTime/state.duration)*100, 0), 100);
@@ -441,8 +407,8 @@ function updateScrubber(){
   els.timeCur.textContent = fmt(state.currentTime);
   els.timeDur.textContent = fmt(state.duration);
 }
-
 function togglePlay(){
+  if (state.currentKind === 'iframe'){ showToast('Usá los controles del iframe'); return; }
   if (_currentVideoEl){
     if (_currentVideoEl.paused) _currentVideoEl.play().catch(()=>{});
     else _currentVideoEl.pause();
@@ -450,28 +416,32 @@ function togglePlay(){
 }
 function rewind10(){
   if (_currentVideoEl) _currentVideoEl.currentTime = Math.max(0, _currentVideoEl.currentTime - 10);
+  else showToast('Solo en HLS/MP4');
 }
 function forward10(){
   if (_currentVideoEl) _currentVideoEl.currentTime = Math.min(_currentVideoEl.duration||Infinity, _currentVideoEl.currentTime + 10);
+  else showToast('Solo en HLS/MP4');
 }
 
 els.btnPlay.onclick = togglePlay;
 els.btnRew.onclick = rewind10;
 els.btnFwd.onclick = forward10;
-els.centerPlay.onclick = () => { if (!state.currentSrv) autoLoadBest(); else togglePlay(); };
-
-$('btn-servers').onclick = (e) => { e.stopPropagation(); const on = els.panelServers.classList.contains('on'); closeAllPanels(); if (!on) els.panelServers.classList.add('on'); };
-els.btnCC.onclick = (e) => { e.stopPropagation(); const on = els.panelSubs.classList.contains('on'); closeAllPanels(); if (!on) els.panelSubs.classList.add('on'); };
-els.btnAudio.onclick = (e) => { e.stopPropagation(); const on = els.panelAudio.classList.contains('on'); closeAllPanels(); if (!on) els.panelAudio.classList.add('on'); };
+els.centerPlay.onclick = () => {
+  if (!state.currentSrv) autoLoadBest();
+  else togglePlay();
+};
+els.btnServers.onclick = (e) => { e.stopPropagation(); els.panelServers.classList.toggle('on'); };
 els.showHud.onclick = showHUD;
 
 els.scrubber.addEventListener('input', e => {
+  if (state.currentKind === 'iframe') return;
   const pct = parseFloat(e.target.value);
   state.currentTime = (pct/100) * state.duration;
   els.scrubberFill.style.width = pct + '%';
   els.timeCur.textContent = fmt(state.currentTime);
 });
 els.scrubber.addEventListener('change', e => {
+  if (state.currentKind === 'iframe') return;
   state.isSeeking = false;
   const sec = (parseFloat(e.target.value)/100) * state.duration;
   if (_currentVideoEl) _currentVideoEl.currentTime = sec;
@@ -480,6 +450,7 @@ els.scrubber.addEventListener('change', e => {
 els.scrubber.addEventListener('pointerdown', () => state.isSeeking = true);
 els.scrubber.addEventListener('pointerup', () => state.isSeeking = false);
 
+let _idleTimer = null;
 function resetIdle(){
   showHUD();
   clearTimeout(_idleTimer);
@@ -487,99 +458,56 @@ function resetIdle(){
 }
 window.addEventListener('mousemove', resetIdle);
 window.addEventListener('touchstart', resetIdle);
-
 document.addEventListener('click', e => {
-  if (!els.panelServers.contains(e.target) && e.target.id !== 'btn-servers'
-      && !els.panelSubs.contains(e.target) && e.target.id !== 'btn-cc'
-      && !els.panelAudio.contains(e.target) && e.target.id !== 'btn-audio') {
-    closeAllPanels();
+  if (!els.panelServers.contains(e.target) && e.target !== els.btnServers) {
+    els.panelServers.classList.remove('on');
   }
 });
 
-document.addEventListener('keydown', (e) => {
-  const abierto = [els.panelServers, els.panelSubs, els.panelAudio].find(p => p.classList.contains('on'));
-  if (abierto){
-    const items = [...abierto.querySelectorAll('button')];
-    const activo = items.indexOf(document.activeElement);
-    if (e.key === 'ArrowDown'){ items[(activo+1) % items.length]?.focus(); e.preventDefault(); }
-    else if (e.key === 'ArrowUp'){ items[(activo-1+items.length) % items.length]?.focus(); e.preventDefault(); }
-    else if (e.key === 'Enter'){ document.activeElement?.click(); e.preventDefault(); }
-    else if (e.key === 'Escape' || e.key === 'Backspace'){ closeAllPanels(); e.preventDefault(); }
-    return;
-  }
-  switch (e.key){
-    case 'Enter': case 'MediaPlayPause':
-      togglePlay(); resetIdle(); e.preventDefault(); break;
-    case 'ArrowRight': forward10(); resetIdle(); e.preventDefault(); break;
-    case 'ArrowLeft':  rewind10();  resetIdle(); e.preventDefault(); break;
-    case 'ArrowUp':
-      if (_currentVideoEl) _currentVideoEl.volume = Math.min(1, _currentVideoEl.volume + 0.1);
-      resetIdle(); e.preventDefault(); break;
-    case 'ArrowDown':
-      if (_currentVideoEl) _currentVideoEl.volume = Math.max(0, _currentVideoEl.volume - 0.1);
-      resetIdle(); e.preventDefault(); break;
-    case 'Escape': case 'Backspace':
-      closeAllPanels(); e.preventDefault(); break;
-  }
-});
+function getQueryParam(name){ return new URLSearchParams(location.search).get(name); }
 
 async function init(){
-  const id = new URLSearchParams(location.search).get('id') || '315635';
-  const type = new URLSearchParams(location.search).get('type') || 'movie';
+  const id = getQueryParam('id') || '315635';
+  const type = getQueryParam('type') || 'movie';
   showLoading('Buscando servidores…');
+
   try {
-    try {
-      const r = await fetch(API_BASE + '/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
-      if (r.ok){
-        const data = await r.json();
-        if (data.meta){
-          if (data.meta.title) els.title.textContent = data.meta.title;
-          const parts = [];
-          if (data.meta.year) parts.push(data.meta.year);
-          if (data.meta.genres && data.meta.genres.length) parts.push(data.meta.genres.slice(0,2).join(' / '));
-          if (data.meta.runtime){
-            const h = Math.floor(data.meta.runtime/60), m = data.meta.runtime%60;
-            parts.push(h>0?h+'h '+m+'m':m+'m');
-          }
-          if (data.meta.voteAverage) parts.push('⭐ ' + data.meta.voteAverage);
-          els.meta.textContent = parts.join(' • ') || 'Sin información';
-          if (data.meta.backdrop) els.backdrop.style.backgroundImage = 'url(' + data.meta.backdrop + ')';
-          if (data.meta.poster) els.posterImg.src = data.meta.poster;
-          if (data.meta.title) document.title = data.meta.title + ' — UnLim Play';
-        }
-        _extracted = {};
-        for (const [name, url] of Object.entries(data.servers?.latino || {})){
-          const baseName = normKey(trueBase(name));
-          if (!ALLOWED_PROVIDERS.includes(baseName)) continue;
-          _extracted[name] = { url, stream: null, kind: 'hls', referer: url };
-        }
-      }
-    } catch(e){ console.warn('[Servers]', e.message); }
+    const r = await fetch(API_BASE + '/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
 
-    try {
-      const rc = await fetch(API_BASE + '/api/cinemaos?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
-      if (rc.ok){
-        const dc = await rc.json();
-        if (dc && dc.servers){
-          for (const [name, info] of Object.entries(dc.servers)){
-            _extracted['🎬 ' + name] = {
-              url: info.url, stream: info.url, kind: 'dash',
-              subtitles: info.subtitles || [], referer: info.url,
-            };
-          }
-        }
-      }
-    } catch(e){ console.warn('[CinemaOS]', e.message); }
+    if (!data.servers || !Object.keys(data.servers).length){
+      showToast('Sin servidores disponibles');
+      hideLoading();
+      return;
+    }
 
-    renderServersList();
+    if (data.meta){
+      if (data.meta.title) els.title.textContent = data.meta.title;
+      const parts = [];
+      if (data.meta.year) parts.push(data.meta.year);
+      if (data.meta.genres && data.meta.genres.length) parts.push(data.meta.genres.slice(0,2).join(' / '));
+      if (data.meta.runtime){
+        const h = Math.floor(data.meta.runtime/60), m = data.meta.runtime%60;
+        parts.push(h>0?h+'h '+m+'m':m+'m');
+      }
+      if (data.meta.voteAverage) parts.push('⭐ ' + data.meta.voteAverage);
+      els.meta.textContent = parts.join(' • ') || 'Sin información';
+      if (data.meta.backdrop) els.backdrop.style.backgroundImage = 'url(' + data.meta.backdrop + ')';
+      if (data.meta.poster) els.posterImg.src = data.meta.poster;
+      if (data.meta.title) document.title = data.meta.title + ' — UnLim Play';
+    }
+
+    embeds = data.servers;
+    state.currentLang = LANG_ORDER.find(l => embeds[l]) || Object.keys(embeds)[0];
     hideLoading();
 
-    if (Object.keys(_extracted).length > 0){
-      els.centerPlay.classList.remove('hidden');
-    } else {
-      showToast('Sin servidores disponibles');
-    }
+    const srvs = embeds[state.currentLang] || {};
+    await extractAllServers(srvs);
+    renderServersList();
+    autoLoadBest();
     resetIdle();
+
   } catch(e){
     console.error('[Init]', e);
     showToast('Error: ' + e.message);
@@ -588,6 +516,5 @@ async function init(){
 }
 init();
 </script>
-
 </body>
 </html>
