@@ -10,7 +10,6 @@ async function scrapeAll(info, type = 'movie') {
   const year = (info && info.year) || '';
 
   console.log('[scraper] TMDB', tmdbId, '—', title, year);
-  if (!tmdbId && !title) return { servers, sources };
 
   // 🥇 PELISPEDIA
   if (title) {
@@ -41,11 +40,12 @@ async function scrapeAll(info, type = 'movie') {
     }
   }
 
-  // 🥉 XPASS (último recurso)
+  // 🥉 XPASS (Fallback garantizado: siempre se ejecuta si los anteriores fallan o no dan resultados)
   if (tmdbId && Object.keys(servers.latino).length === 0) {
     servers.latino['Xpass'] = `https://play.xpass.top/e/${type}/${tmdbId}`;
     servers.subtitulado['Xpass EN'] = `https://play.xpass.top/e/${type}/${tmdbId}`;
-    console.log('[scraper] Fallback a Xpass');
+    sources.xpass = { ok: true, count: 2 };
+    console.log('[scraper] Usando fallback de Xpass');
   }
 
   console.log('[scraper] Total latino:', Object.keys(servers.latino).length);
@@ -55,4 +55,3 @@ async function scrapeAll(info, type = 'movie') {
 }
 
 module.exports = { scrapeAll };
-console.log('[scraper] v13 cargado — Pelispedia + PelisPlusHD + Xpass');
