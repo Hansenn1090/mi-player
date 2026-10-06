@@ -30,7 +30,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // ==========================================
-// RUTA PRINCIPAL DE SCRAPING
+// RUTA PRINCIPAL DE SCRAPING (Aquí se unifican todos los proveedores)
 // ==========================================
 app.get('/api/servers', async (req, res) => {
   const { id, type = 'movie', season = '', episode = '' } = req.query;
@@ -43,6 +43,8 @@ app.get('/api/servers', async (req, res) => {
   try {
     console.log(`[api/servers] ${type}/${id} → scraping...`);
     const info = await getMediaInfo(id, type);
+    
+    // Aquí scrapeAll ejecuta Pelisplus, Pelispedia y Xpass
     const { servers, sources } = await scrapeAll(info, type);
 
     if (!servers || !Object.keys(servers).length) {
@@ -67,49 +69,6 @@ app.get('/api/servers', async (req, res) => {
     res.json({ ...payload, source: 'fresh' });
   } catch (err) {
     console.error('[api/servers] Error:', err.message);
-    if (cached) return res.json({ ...cached, source: 'snapshot-error' });
-    res.json({ servers: {}, meta: { tmdbId: id, type, title: 'Error temporal' }, sources: {}, error: err.message, source: 'error' });
-  }
-});
-
-// ==========================================
-// NUEVA RUTA: /api/cinemaos2 (Alias de /api/servers)
-// ==========================================
-app.get('/api/cinemaos2', async (req, res) => {
-  const { id, type = 'movie', season = '', episode = '' } = req.query;
-  if (!id) return res.status(400).json({ error: 'Falta ?id=' });
-
-  let cached = null;
-  try { cached = cache.get(id, type, season, episode); } catch (_) {}
-  if (cached && cached._fresh) return res.json({ ...cached, source: 'cache' });
-
-  try {
-    console.log(`[api/cinemaos2] ${type}/${id} → scraping...`);
-    const info = await getMediaInfo(id, type);
-    const { servers, sources } = await scrapeAll(info, type);
-
-    if (!servers || !Object.keys(servers).length) {
-      if (cached) return res.json({ ...cached, source: 'snapshot' });
-      return res.json({ servers: {}, meta: info || {}, sources: sources || {}, source: 'empty' });
-    }
-
-    const payload = {
-      servers,
-      meta: {
-        tmdbId: id, type,
-        title: info.title || '', year: info.year || '',
-        poster: info.poster || '', backdrop: info.backdrop || '',
-        overview: info.overview || '', runtime: info.runtime || 0,
-        genres: info.genres || [], voteAverage: info.voteAverage || 0,
-        scrapedAt: Date.now(),
-      },
-      sources,
-    };
-    try { cache.set(id, type, season, episode, payload); } catch (_) {}
-    console.log('[api/cinemaos2] OK:', Object.keys(servers).map(l => `${l}:${Object.keys(servers[l] || {}).length}`).join(' '));
-    res.json({ ...payload, source: 'fresh' });
-  } catch (err) {
-    console.error('[api/cinemaos2] Error:', err.message);
     if (cached) return res.json({ ...cached, source: 'snapshot-error' });
     res.json({ servers: {}, meta: { tmdbId: id, type, title: 'Error temporal' }, sources: {}, error: err.message, source: 'error' });
   }
