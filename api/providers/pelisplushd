@@ -1,0 +1,53 @@
+const axios = require('axios');
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+async function scrapePelisPlusHD(title) {
+  const found = {};
+  const bases = ['https://pelisplushd.bz', 'https://pelisplushd.la'];
+
+  for (const base of bases) {
+    try {
+      const { data: searchHtml } = await axios.get(
+        `${base}/search?s=${encodeURIComponent(title)}`,
+        { timeout: 8000, headers: { 'User-Agent': UA, 'Referer': base + '/' }, validateStatus: s => s >= 200 && s < 400 }
+      );
+      const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = searchHtml.match(new RegExp(`href="(${escaped}\\/pelicula\\/[^"]+)"`, 'i'));
+      if (!match) continue;
+
+      const { data: detailHtml } = await axios.get(match[1], {
+        timeout: 8000, headers: { 'User-Agent': UA, 'Referer': base }, validateStatus: s => s >= 200 && s < 400
+      });
+
+      const iframeRegex = /<iframe[^>]+src="([^"]+)"/gi;
+      let m, count = 0;
+      while ((m = iframeRegex.exec(detailHtml)) !== null) {
+        let url = m[1];
+        if (url.startsWith('//')) url = 'https:' + url;
+        if (url.startsWith('/')) url = base + url;
+        if (!url.startsWith('http')) continue;
+        if (/youtube|googleads|doubleclick|histats|yandex|tagivi|mamshirt|embed69/i.test(url)) continue;
+        const name = detectName(url) + (count > 0 ? ' ' + (++count) : '');
+        if (!found[name]) found[name] = url;
+      }
+      if (Object.keys(found).length > 0) break;
+    } catch (e) {}
+  }
+  return found;
+}
+
+function detectName(url) {
+  const u = (url || '').toLowerCase();
+  if (/voe\.sx|voe\.de|voe\.bar|voe\.net/i.test(u)) return 'VOE';
+  if (/streamwish|embedwish|hglink|filelions|vidhide|morencius/i.test(u)) return 'StreamWish';
+  if (/filemoon|moonplayer|byse/i.test(u)) return 'FileMoon';
+  if (/dood/i.test(u)) return 'DoodStream';
+  if (/vimeos/i.test(u)) return 'Vimeos';
+  if (/xpass/i.test(u)) return 'Xpass';
+  if (/uqload/i.test(u)) return 'Uqload';
+  return 'Servidor';
+}
+
+module.exports = { scrapePelisPlusHD };
+console.log('[pelisplushd] Provider cargado');
