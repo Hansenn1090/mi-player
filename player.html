@@ -123,10 +123,10 @@
 
 <script>
 /* ══════════════════════════════════════════════════════════════════════════
-   ⚠️ CONFIGURACIÓN — CAMBIAR ESTAS 2 URLs
+   ⚠️ CONFIGURACIÓN CORREGIDA
    ══════════════════════════════════════════════════════════════════════════ */
-const API_BASE   = 'https://TU-APP.onrender.com';        // ← Tu URL de Render
-const PROXY_BASE = 'https://TU-WORKER.workers.dev';      // ← Tu URL de Cloudflare Worker
+const API_BASE   = 'https://mi-player-api.onrender.com';        // ← Tu URL real de Render
+const PROXY_BASE = 'https://mi-player-api.onrender.com/api/proxy'; // ← Usamos el proxy de tu backend
 /* ══════════════════════════════════════════════════════════════════════════ */
 
 const state = {
@@ -269,8 +269,8 @@ function mountHls(url, referer){
   attachVideo(vid);
 
   const ref = referer || url;
-  // ⚠️ URL por Cloudflare Worker (más rápido + cache)
-  const proxyUrl = PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  // ⚠️ Usamos el proxy de nuestro backend en Render
+  const proxyUrl = PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
   console.log('[HLS] Proxy URL:', proxyUrl.slice(0, 120));
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()){
@@ -319,7 +319,7 @@ function mountMp4(url, referer){
   attachVideo(vid);
 
   const ref = referer || url;
-  const proxyUrl = PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  const proxyUrl = PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
   vid.src = proxyUrl; vid.load();
   vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
   vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
