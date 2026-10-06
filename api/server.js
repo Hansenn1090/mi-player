@@ -29,6 +29,9 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), tmdb: !!process.env.TMDB_API_KEY, extractor: !!extractorModule, node: process.version });
 });
 
+// ==========================================
+// RUTA PRINCIPAL DE SCRAPING
+// ==========================================
 app.get('/api/servers', async (req, res) => {
   const { id, type = 'movie', season = '', episode = '' } = req.query;
   if (!id) return res.status(400).json({ error: 'Falta ?id=' });
@@ -69,6 +72,52 @@ app.get('/api/servers', async (req, res) => {
   }
 });
 
+// ==========================================
+// NUEVA RUTA: /api/cinemaos2 (Alias de /api/servers)
+// ==========================================
+app.get('/api/cinemaos2', async (req, res) => {
+  const { id, type = 'movie', season = '', episode = '' } = req.query;
+  if (!id) return res.status(400).json({ error: 'Falta ?id=' });
+
+  let cached = null;
+  try { cached = cache.get(id, type, season, episode); } catch (_) {}
+  if (cached && cached._fresh) return res.json({ ...cached, source: 'cache' });
+
+  try {
+    console.log(`[api/cinemaos2] ${type}/${id} → scraping...`);
+    const info = await getMediaInfo(id, type);
+    const { servers, sources } = await scrapeAll(info, type);
+
+    if (!servers || !Object.keys(servers).length) {
+      if (cached) return res.json({ ...cached, source: 'snapshot' });
+      return res.json({ servers: {}, meta: info || {}, sources: sources || {}, source: 'empty' });
+    }
+
+    const payload = {
+      servers,
+      meta: {
+        tmdbId: id, type,
+        title: info.title || '', year: info.year || '',
+        poster: info.poster || '', backdrop: info.backdrop || '',
+        overview: info.overview || '', runtime: info.runtime || 0,
+        genres: info.genres || [], voteAverage: info.voteAverage || 0,
+        scrapedAt: Date.now(),
+      },
+      sources,
+    };
+    try { cache.set(id, type, season, episode, payload); } catch (_) {}
+    console.log('[api/cinemaos2] OK:', Object.keys(servers).map(l => `${l}:${Object.keys(servers[l] || {}).length}`).join(' '));
+    res.json({ ...payload, source: 'fresh' });
+  } catch (err) {
+    console.error('[api/cinemaos2] Error:', err.message);
+    if (cached) return res.json({ ...cached, source: 'snapshot-error' });
+    res.json({ servers: {}, meta: { tmdbId: id, type, title: 'Error temporal' }, sources: {}, error: err.message, source: 'error' });
+  }
+});
+
+// ==========================================
+// RUTAS DE EXTRACCIÓN Y PROXY
+// ==========================================
 app.get('/api/extract', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'Falta ?url=', kind: 'iframe' });
@@ -145,16 +194,21 @@ app.get('/api/proxy', async (req, res) => {
   }
 });
 
+// ==========================================
+// SERVIR EL PLAYER HTML
+// ==========================================
 function findPlayerHtml() {
   const c = [path.join(__dirname, '..', 'player.html'), path.join(__dirname, 'player.html'), path.join(process.cwd(), 'player.html')];
   for (const p of c) { try { if (fs.existsSync(p)) return p; } catch (_) {} }
   return null;
 }
+
 app.get('/', (req, res) => {
   const p = findPlayerHtml();
   if (!p) return res.status(404).send('player.html no encontrado');
   res.sendFile(p);
 });
+
 app.get('/player.html', (req, res) => {
   const p = findPlayerHtml();
   if (!p) return res.status(404).send('player.html no encontrado');
@@ -163,8 +217,13 @@ app.get('/player.html', (req, res) => {
 
 app.use(express.static(path.join(__dirname, '..')));
 app.use(express.static(path.join(__dirname)));
+
+// Middleware 404 (SIEMPRE AL FINAL DE LAS RUTAS)
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.originalUrl }));
 
+// ==========================================
+// INICIO DEL SERVIDOR
+// ==========================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log('');
