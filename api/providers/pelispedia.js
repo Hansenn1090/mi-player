@@ -1,180 +1,137 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const https = require('https');
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
-const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const BASE = 'https://pelispedia.casa';
 
-function getHeaders(extra = {}) {
-  return {
-    'User-Agent': UA,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-    'Cache-Control': 'no-cache',
-    'Sec-Ch-Ua': '"Chromium";v="121", "Not A(Brand";v="99"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'same-origin',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    ...extra,
-  };
-}
-
-// Decodifica entities HTML (&lt;iframe src=&quot;...&quot;&gt;)
-function decodeHtmlEntities(str) {
-  return String(str || '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#039;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&');
-}
-
-async function scrapePelispedia(title, year, tmdbId, type) {
-  const found = { latino: {}, subtitulado: {} };
+async function scrapePelispedia(title, year, type = 'movie') {
+  const found = {};
   if (!title) return found;
-
   console.log('[pelispedia] Buscando:', title, year || '');
 
+  const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
+  let detailUrl = null;
+
   try {
-    const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
     const { data: searchHtml } = await axios.get(searchUrl, {
-      timeout: 15000,
-      httpsAgent,
-      headers: getHeaders({ 'Referer': BASE + '/' }),
-      maxRedirects: 5,
+      timeout: 12000,
+      headers: {
+        'User-Agent': UA,
+        'Referer': BASE + '/',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      },
       validateStatus: s => s >= 200 && s < 400,
+      maxRedirects: 5,
     });
 
     const $ = cheerio.load(searchHtml);
-    let detailUrl = null;
+    const candidates = [];
+    const linkSel = type === 'tv' ? 'a[href*="/series/"]' : 'a[href*="/peliculas/"]';
 
-    const normalize = s => (s || '').toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-
-    const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
-
-    $('a').each((i, el) => {
-      if (detailUrl) return;
-      const href = $(el).attr('href') || '';
-      if (!href.includes('/pelicula/') && !href.includes('/serie/')) return;
-      const text = normalize($(el).text());
-      const matches = titleWords.filter(w => text.includes(w));
-      if (matches.length >= Math.min(2, titleWords.length)) {
-        detailUrl = href.startsWith('http') ? href : BASE + href;
-      }
+    $(linkSel).each((i, el) => {
+      const href = $(el).attr('href');
+      if (!href) return;
+      const text = ($(el).text() + ' ' + ($(el).find('h2, h3, .pp-card__title, .entry-title').text() || '')).toLowerCase();
+      candidates.push({ href, text });
     });
 
-    if (!detailUrl) {
-      console.log('[pelispedia] No se encontró detalle');
-      return found;
+    const normalize = s => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+    const titleNorm = normalize(title);
+    const titleWords = titleNorm.split(' ').filter(w => w.length > 2);
+    const yearStr = String(year || '');
+
+    for (const c of candidates) {
+      const candNorm = normalize(c.text);
+      const matches = titleWords.filter(w => candNorm.includes(w));
+      if (matches.length >= Math.min(2, titleWords.length)) {
+        if (!yearStr || c.text.includes(yearStr) || c.href.includes(yearStr)) {
+          detailUrl = c.href;
+          break;
+        }
+      }
     }
+    if (!detailUrl && candidates.length > 0 && titleWords.length > 0) {
+      for (const c of candidates) {
+        if (normalize(c.text).includes(titleWords[0])) { detailUrl = c.href; break; }
+      }
+    }
+    if (detailUrl && detailUrl.startsWith('/')) detailUrl = BASE + detailUrl;
+    if (!detailUrl) { console.log('[pelispedia] No encontrada'); return found; }
+    console.log('[pelispedia] Detalle:', detailUrl);
+  } catch (e) {
+    console.warn('[pelispedia] Error búsqueda:', e.message);
+    return found;
+  }
 
-    console.log('[pelispedia] Detalle final:', detailUrl);
-
-    const { data: detailHtml } = await axios.get(detailUrl, {
-      timeout: 15000,
-      httpsAgent,
-      headers: getHeaders({ 'Referer': searchUrl }),
+  let detailHtml = '';
+  try {
+    const { data } = await axios.get(detailUrl, {
+      timeout: 12000,
+      headers: { 'User-Agent': UA, 'Referer': BASE + '/', 'Accept-Language': 'es-ES,es;q=0.9' },
       validateStatus: s => s >= 200 && s < 400,
     });
+    detailHtml = data;
+  } catch (e) { console.warn('[pelispedia] Error detalle:', e.message); return found; }
 
-    const $d = cheerio.load(detailHtml);
+  const $d = cheerio.load(detailHtml);
 
-    // ═══════════════════════════════════════════════════════════════════
-    // MÉTODO 1: Buscar data-pp-embed y decodificar entities HTML
-    // ═══════════════════════════════════════════════════════════════════
-    $d('[data-pp-embed]').each((i, el) => {
-      const raw = $d(el).attr('data-pp-embed');
-      const lang = ($d(el).attr('data-pp-lang') || 'latino').toLowerCase();
-      if (!raw) return;
+  $d('[data-pp-embed]').each((i, el) => {
+    const embedRaw = $d(el).attr('data-pp-embed');
+    const lang = ($d(el).attr('data-pp-lang') || 'latino').toLowerCase();
+    if (!embedRaw) return;
+    const decoded = embedRaw.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#039;/g,"'").replace(/&amp;/g,'&');
+    const srcMatch = decoded.match(/src=["']([^"']+)["']/);
+    if (!srcMatch) return;
+    let embedUrl = srcMatch[1];
+    if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
+    if (embedUrl.startsWith('/')) embedUrl = BASE + embedUrl;
+    if (!embedUrl.startsWith('http')) return;
+    if (/doubleclick|googlesyndication|google-analytics|youtube/i.test(embedUrl)) return;
+    const name = detectServerName(embedUrl);
+    if (!found[lang]) found[lang] = {};
+    if (!found[lang][name]) {
+      found[lang][name] = embedUrl;
+      console.log(`[pelispedia] ✅ ${lang}/${name}: ${embedUrl.slice(0, 80)}`);
+    }
+  });
 
-      const decoded = decodeHtmlEntities(raw);
-      const srcMatch = decoded.match(/src=["']([^"']+)["']/);
-      if (!srcMatch) return;
-
-      let embedUrl = srcMatch[1];
-      if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
-      if (embedUrl.startsWith('/')) embedUrl = BASE + embedUrl;
-      if (!embedUrl.startsWith('http')) return;
-      if (/doubleclick|google|youtube|histats|yandex/i.test(embedUrl)) return;
-
-      const name = detectServerName(embedUrl);
-      if (!name) return;
-
-      const targetLang = (lang === 'latino' || lang === 'español') ? 'latino' : 'subtitulado';
-      if (!found[targetLang][name]) {
-        found[targetLang][name] = embedUrl;
-        console.log(`[pelispedia] OK ${targetLang}/${name}: ${embedUrl.slice(0, 80)}`);
-      }
-    });
-
-    // ═══════════════════════════════════════════════════════════════════
-    // MÉTODO 2: Buscar iframes directos
-    // ═══════════════════════════════════════════════════════════════════
-    $d('iframe').each((i, el) => {
-      let src = $d(el).attr('src') || $d(el).attr('data-src');
+  if (Object.keys(found).length === 0) {
+    $d('.pp-player__frame iframe, .pp-player iframe, iframe[src*="embed"]').each((i, el) => {
+      let src = $d(el).attr('src');
       if (!src) return;
       if (src.startsWith('//')) src = 'https:' + src;
       if (src.startsWith('/')) src = BASE + src;
       if (!src.startsWith('http')) return;
-      if (/doubleclick|google|youtube|histats/i.test(src)) return;
-
+      if (/doubleclick|google|youtube/i.test(src)) return;
       const name = detectServerName(src);
-      if (!name) return;
-      if (!found.latino[name]) {
-        found.latino[name] = src;
-        console.log(`[pelispedia] OK (iframe) ${name}: ${src.slice(0, 80)}`);
-      }
+      if (!found.latino) found.latino = {};
+      if (!found.latino[name]) found.latino[name] = src;
     });
-
-    // ═══════════════════════════════════════════════════════════════════
-    // MÉTODO 3: Buscar patrones de URLs de servidores conocidos en el HTML crudo
-    // ═══════════════════════════════════════════════════════════════════
-    const decoded = decodeHtmlEntities(detailHtml);
-    const patterns = [
-      /https?:\/\/(?:www\.)?(?:streamwish|hglink|flaswish|embedwish)\.[^\s"'<>]+/gi,
-      /https?:\/\/(?:www\.)?(?:filelions|vidhide|minochinos|callistanise|morencius)\.[^\s"'<>]+/gi,
-      /https?:\/\/(?:www\.)?vidmoly\.[^\s"'<>]+/gi,
-    ];
-    for (const re of patterns) {
-      const matches = decoded.match(re);
-      if (matches) {
-        for (const url of matches) {
-          const name = detectServerName(url);
-          if (name && !found.latino[name]) {
-            found.latino[name] = url;
-            console.log(`[pelispedia] OK (regex) ${name}: ${url.slice(0, 80)}`);
-          }
-        }
-      }
-    }
-
-    console.log('[pelispedia] Total encontrados:', Object.keys(found.latino).length);
-    return found;
-  } catch (e) {
-    console.warn(`[pelispedia] Falló:`, e.message);
-    return found;
   }
+
+  const total = Object.values(found).reduce((a, s) => a + Object.keys(s).length, 0);
+  console.log('[pelispedia] Total:', total);
+  return found;
 }
 
 function detectServerName(url) {
   const u = (url || '').toLowerCase();
-  if (/streamwish|hglink|flaswish|embedwish/i.test(u)) return 'StreamWish';
-  if (/vidhide|minochinos|callistanise|morencius|filelions/i.test(u)) return 'FileLions';
+  if (/voe\.sx|voe\.de|voe\.bar|voe\.net/i.test(u)) return 'VOE';
+  if (/vimeos/i.test(u)) return 'Vimeos';
+  if (/streamwish|embedwish|hglink|filelions/i.test(u)) return 'StreamWish';
+  if (/vidhide|morencius|minochinos/i.test(u)) return 'VidHide';
+  if (/filemoon|moonplayer|byse/i.test(u)) return 'FileMoon';
+  if (/dood/i.test(u)) return 'DoodStream';
+  if (/fembed/i.test(u)) return 'Fembed';
+  if (/xpass/i.test(u)) return 'Xpass';
+  if (/uqload/i.test(u)) return 'Uqload';
+  if (/streamtape/i.test(u)) return 'StreamTape';
+  if (/mixdrop/i.test(u)) return 'MixDrop';
+  if (/ok\.ru/i.test(u)) return 'OkRu';
   if (/vidmoly/i.test(u)) return 'Vidmoly';
-  return null;
+  return 'Servidor';
 }
 
-module.exports = {
-  scrapePelispedia,
-  search: async (title, year, tmdbId, type) => scrapePelispedia(title, year, tmdbId, type)
-};
-
-console.log('[pelispedia] Provider cargado (3 metodos de extraccion)');
+module.exports = { scrapePelispedia };
+console.log('[pelispedia] Provider cargado');
