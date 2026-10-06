@@ -1,40 +1,76 @@
 const axios = require('axios');
 
-// ✅ TU API KEY de TMDB (la correcta)
-const TMDB_KEY = process.env.TMDB_API_KEY || '2d85217008ed46189916cf9cf1eaef53';
-const BASE = 'https://api.themoviedb.org/3';
+// Asegúrate de que esta variable esté configurada en Render como TMDB_API_KEY
+const API_KEY = process.env.TMDB_API_KEY;
+const BASE_URL = 'https://api.themoviedb.org/3';
+const IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
-async function getTmdbInfo(tmdbId, type = 'movie') {
+/**
+ * Obtiene la información de una película o serie desde TMDB
+ * @param {string} id - El ID de TMDB (ej. 142319)
+ * @param {string} type - 'movie' o 'tv'
+ * @returns {Promise<Object>} - Objeto con la información formateada para el scraper
+ */
+async function getMediaInfo(id, type = 'movie') {
+  // Si no hay API Key, devolvemos un objeto vacío para que el scraper intente buscar solo por título si lo tuviera
+  if (!API_KEY) {
+    console.warn('[TMDB] No hay API_KEY configurada en las variables de entorno.');
+    return { tmdbId: id, type, title: '', year: '' };
+  }
+
   try {
-    const url = `${BASE}/${type}/${tmdbId}?api_key=${TMDB_KEY}&language=es-ES`;
-    const { data } = await axios.get(url, { timeout: 12000 });
-    return {
-      tmdbId: String(tmdbId),
-      type,
-      title: data.title || data.name || 'Sin título',
-      year: (data.release_date || data.first_air_date || '').slice(0, 4),
-      poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
-      backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}` : null,
+    // Determinar si es película o serie
+    const endpoint = type === 'tv' ? 'tv' : 'movie';
+    const url = `${BASE_URL}/${endpoint}/${id}?api_key=${API_KEY}&language=es-ES`;
+
+    console.log(`[TMDB] Buscando ${endpoint} con ID: ${id}`);
+    const response = await axios.get(url, { timeout: 10000 });
+    const data = response.data;
+
+    // Extraer el año (TMDB usa release_date para películas y first_air_date para series)
+    const dateStr = data.release_date || data.first_air_date || '';
+    const year = dateStr ? dateStr.split('-')[0] : '';
+
+    // Extraer duración (runtime para películas, episode_run_time para series)
+    let runtime = data.runtime || 0;
+    if (!runtime && data.episode_run_time && data.episode_run_time.length > 0) {
+      runtime = data.episode_run_time[0];
+    }
+
+    // Formatear la respuesta exactamente como la espera tu server.js
+    const info = {
+      tmdbId: id,
+      type: type,
+      title: data.title || data.name || '',
+      year: year,
+      poster: data.poster_path ? `${IMAGE_BASE}/w500${data.poster_path}` : '',
+      backdrop: data.backdrop_path ? `${IMAGE_BASE}/original${data.backdrop_path}` : '',
       overview: data.overview || '',
-      runtime: data.runtime || (data.episode_run_time && data.episode_run_time[0]) || 0,
-      genres: (data.genres || []).map(g => g.name),
-      voteAverage: data.vote_average || 0,
+      runtime: runtime,
+      genres: data.genres ? data.genres.map(g => g.name) : [],
+      voteAverage: data.vote_average || 0
     };
-  } catch (e) {
-    console.error('[tmdb] Error:', e.message);
-    return {
-      tmdbId: String(tmdbId),
-      type,
-      title: '',
+
+    console.log(`[TMDB] OK: ${info.title} (${info.year})`);
+    return info;
+
+  } catch (error) {
+    console.error(`[TMDB] Error al buscar ${type} con ID ${id}:`, error.message);
+    // Devolvemos un objeto básico para que el servidor no se caiga si TMDB falla
+    return { 
+      tmdbId: id, 
+      type, 
+      title: 'Error al conectar con TMDB', 
       year: '',
-      poster: null,
-      backdrop: null,
+      poster: '',
+      backdrop: '',
       overview: '',
       runtime: 0,
       genres: [],
-      voteAverage: 0,
+      voteAverage: 0
     };
   }
 }
 
-module.exports = { getTmdbInfo };
+// Exportar la función con el nombre exacto que usa server.js
+module.exports = { getMediaInfo };
