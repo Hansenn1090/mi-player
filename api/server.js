@@ -5,8 +5,27 @@ const path = require('path');
 const fs = require('fs');
 
 let scrapeAll, getMediaInfo, cache;
+
+// ==========================================
+// 1. IMPORTACIONES SEGURAS (La parte que me enviaste)
+// ==========================================
+// Carga segura de Scraper
 try { ({ scrapeAll } = require('./core/scraper')); } catch (e) { scrapeAll = async () => ({ servers: {}, sources: {} }); }
-try { ({ getMediaInfo } = require('./core/tmdb')); } catch (e) { getMediaInfo = async (id) => ({ tmdbId: id, title: 'Sin info' }); }
+
+// Carga segura de TMDB (Soporta múltiples nombres de exportación)
+try {
+  const tmdbModule = require('./core/tmdb');
+  getMediaInfo = tmdbModule.getMediaInfo || tmdbModule.getInfo || tmdbModule.default || tmdbModule;
+} catch (e) {
+  console.warn('[init] TMDB module no encontrado o falló:', e.message);
+}
+
+// Fallback si no es una función válida
+if (typeof getMediaInfo !== 'function') {
+  console.warn('[init] getMediaInfo no es una función, usando respaldo.');
+  getMediaInfo = async (id) => ({ tmdbId: id, title: 'Sin info (TMDB falló)' });
+}
+
 try { cache = require('./core/cache'); } catch (e) { cache = { get: () => null, set: () => {} }; }
 
 let extractorModule = null;
@@ -15,6 +34,9 @@ try {
   console.log('[init] extractor OK. Exports:', Object.keys(extractorModule));
 } catch (e) { console.warn('[init] extractor:', e.message); }
 
+// ==========================================
+// 2. CONFIGURACIÓN DE EXPRESS
+// ==========================================
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -25,13 +47,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// ==========================================
+// 3. RUTAS DE LA API
+// ==========================================
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), tmdb: !!process.env.TMDB_API_KEY, extractor: !!extractorModule, node: process.version });
 });
 
-// ==========================================
-// RUTA PRINCIPAL DE SCRAPING (Aquí se unifican todos los proveedores)
-// ==========================================
 app.get('/api/servers', async (req, res) => {
   const { id, type = 'movie', season = '', episode = '' } = req.query;
   if (!id) return res.status(400).json({ error: 'Falta ?id=' });
@@ -43,8 +65,6 @@ app.get('/api/servers', async (req, res) => {
   try {
     console.log(`[api/servers] ${type}/${id} → scraping...`);
     const info = await getMediaInfo(id, type);
-    
-    // Aquí scrapeAll ejecuta Pelisplus, Pelispedia y Xpass
     const { servers, sources } = await scrapeAll(info, type);
 
     if (!servers || !Object.keys(servers).length) {
@@ -74,9 +94,6 @@ app.get('/api/servers', async (req, res) => {
   }
 });
 
-// ==========================================
-// RUTAS DE EXTRACCIÓN Y PROXY
-// ==========================================
 app.get('/api/extract', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'Falta ?url=', kind: 'iframe' });
@@ -104,7 +121,6 @@ app.get('/api/extract', async (req, res) => {
   }
 });
 
-// Proxy HLS de respaldo (si Cloudflare Worker falla)
 app.get('/api/proxy', async (req, res) => {
   const targetUrl = req.query.url;
   const referer = req.query.referer || 'https://play.xpass.top/';
@@ -154,7 +170,7 @@ app.get('/api/proxy', async (req, res) => {
 });
 
 // ==========================================
-// SERVIR EL PLAYER HTML
+// 4. SERVIR EL PLAYER HTML Y ARCHIVOS ESTÁTICOS
 // ==========================================
 function findPlayerHtml() {
   const c = [path.join(__dirname, '..', 'player.html'), path.join(__dirname, 'player.html'), path.join(process.cwd(), 'player.html')];
@@ -181,7 +197,7 @@ app.use(express.static(path.join(__dirname)));
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.originalUrl }));
 
 // ==========================================
-// INICIO DEL SERVIDOR
+// 5. INICIO DEL SERVIDOR
 // ==========================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
