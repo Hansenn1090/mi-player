@@ -123,10 +123,10 @@
 
 <script>
 /* ══════════════════════════════════════════════════════════════════════════
-   ⚠️ CONFIGURACIÓN CORREGIDA
+   CONFIGURACIÓN — CAMBIAR ESTAS 2 URLs
    ══════════════════════════════════════════════════════════════════════════ */
-const API_BASE   = 'https://mi-player-api.onrender.com';        // ← Tu URL real de Render
-const PROXY_BASE = 'https://mi-player-api.onrender.com/api/proxy'; // ← Usamos el proxy de tu backend
+const API_BASE   = 'https://TU-APP.onrender.com';
+const PROXY_BASE = 'https://TU-WORKER.workers.dev';
 /* ══════════════════════════════════════════════════════════════════════════ */
 
 const state = {
@@ -156,7 +156,7 @@ const PROVIDER_DISPLAY = {
   filelions:'FileLions', filemoon:'FileMoon', doodstream:'DoodStream',
   fembed:'Fembed', streamtape:'StreamTape', mixdrop:'MixDrop', okru:'OkRu',
   uqload:'Uqload', vidspeed:'VidSpeed', vidmoly:'Vidmoly',
-  mp4upload:'Mp4Upload', netu:'Netu', fastream:'Fastream', xpass:'Xpass',
+  mp4upload:'Mp4Upload', netu:'Netu', fastream:'Fastream',
 };
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -206,9 +206,6 @@ function setChip(k){
 function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.remove('on'); }
 function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Extracción desde Render
-   ══════════════════════════════════════════════════════════════════════════ */
 async function extractFromBackend(embedUrl){
   try {
     const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
@@ -242,9 +239,6 @@ async function extractAllServers(srvs){
   _extracted = extracted;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Montaje del reproductor
-   ══════════════════════════════════════════════════════════════════════════ */
 function teardown(){
   if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
   if (_currentFrame){ try{ _currentFrame.remove(); }catch(_){} _currentFrame = null; }
@@ -269,8 +263,7 @@ function mountHls(url, referer){
   attachVideo(vid);
 
   const ref = referer || url;
-  // ⚠️ Usamos el proxy de nuestro backend en Render
-  const proxyUrl = PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  const proxyUrl = PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
   console.log('[HLS] Proxy URL:', proxyUrl.slice(0, 120));
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()){
@@ -280,7 +273,6 @@ function mountHls(url, referer){
     hls.attachMedia(vid);
 
     const loadTimeout = setTimeout(() => {
-      console.warn('[HLS] Timeout');
       showToast('El stream tarda. Probando otro…');
       hideLoading();
       tryNextServer();
@@ -294,7 +286,6 @@ function mountHls(url, referer){
     hls.on(Hls.Events.ERROR, (_, d) => {
       if (d.fatal){
         clearTimeout(loadTimeout);
-        console.warn('[HLS] Error:', d.details);
         showToast('Error, probando siguiente…');
         hideLoading();
         tryNextServer();
@@ -319,7 +310,7 @@ function mountMp4(url, referer){
   attachVideo(vid);
 
   const ref = referer || url;
-  const proxyUrl = PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
+  const proxyUrl = PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
   vid.src = proxyUrl; vid.load();
   vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
   vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
