@@ -1,43 +1,70 @@
+// api/providers/registry.js
+
+// Importa TODOS tus proveedores existentes
+const unlimplay = require('./unlimplay');
+const pelisplushd = require('./pelisplushd');
+const pelixplay = require('./pelixplay');
+const poseidonhd2 = require('./poseidonhd2');
+const cineplus123 = require('./cineplus123');
+const cinemaos = require('./cinemaos');
+const pelisplus = require('./pelisplus');
 const multi = require('./multi');
+// ... añade los que falten
 
 const PROVIDERS = [
-  { name: 'multi', module: multi, priority: 1 },
+    unlimplay,
+    pelisplushd,
+    pelixplay,
+    poseidonhd2,
+    cineplus123,
+    cinemaos,
+    pelisplus,
+    multi
 ];
 
-const ALLOWED_SERVERS = ['streamwish', 'vidmoly', 'filelions', 'vidhide'];
+const VER_ORDER = ['latino', 'castellano', 'subtitulado'];
 
-function isAllowedServer(name) {
-  const base = String(name).toLowerCase().replace(/[\s_-]+\d+$/, '');
-  if (['hglink', 'flaswish', 'wishfast', 'awish', 'embedwish'].includes(base)) return true;
-  if (['minochinos', 'vidhidepro', 'callistanise', 'hgcloud'].includes(base)) return true;
-  return ALLOWED_SERVERS.includes(base);
-}
+/**
+ * Obtiene las fuentes de todos los proveedores, con el mismo formato
+ * que PlayLatinSRC espera en el frontend.
+ */
+async function getSourcesFromProviders(type, id) {
+    let allSources = [];
 
-async function searchAllProviders(title, year, tmdbId, type) {
-  const allResults = { latino: {}, subtitulado: {} };
+    for (const provider of PROVIDERS) {
+        // Verifica que el proveedor tenga la función resolve
+        if (typeof provider.resolve !== 'function') continue;
 
-  for (const provider of PROVIDERS) {
-    if (!provider.module || typeof provider.module.search !== 'function') continue;
-    try {
-      const result = await provider.module.search(title, year, tmdbId, type);
-      if (!result) continue;
-
-      for (const lang of ['latino', 'subtitulado']) {
-        if (result[lang]) {
-          for (const [name, url] of Object.entries(result[lang])) {
-            if (isAllowedServer(name) && !allResults[lang][name]) {
-              allResults[lang][name] = url;
+        for (const version of VER_ORDER) {
+            try {
+                const url = await provider.resolve(id, type, version);
+                if (url) {
+                    allSources.push({
+                        name: provider.name,      // Ej: 'unlimplay', 'dropload'
+                        version: version,          // 'latino', 'castellano', etc.
+                        url: url,
+                        recommended: provider.recommended || false
+                    });
+                }
+            } catch (err) {
+                console.error(`[${provider.name}/${version}] Error:`, err.message);
             }
-          }
         }
-      }
-    } catch (err) {
-      console.error(`[registry] Error en ${provider.name}:`, err.message);
     }
-  }
 
-  console.log('[registry] Resultado final:', Object.keys(allResults.latino));
-  return allResults;
+    // ============================================================
+    // FUENTE ALTERNATIVA (igual que PlayLatinSRC con ALT_URL)
+    // Se añade SIEMPRE al final, sin importar si hay otras fuentes.
+    // ============================================================
+    const altUrl = `https://unlimplay.com/f/embed/${type}/${id}`;
+    allSources.push({
+        name: 'unlimplay',
+        version: 'latino',
+        url: altUrl,
+        alt: true // Marca especial para que el frontend sepa que es la alternativa
+    });
+
+    return allSources;
 }
 
-module.exports = { searchAllProviders, isAllowedServer };
+module.exports = { getSourcesFromProviders };
