@@ -2,16 +2,13 @@
 const path = require('path');
 const fs = require('fs');
 
-// ─── Solo los providers REALES de tu carpeta /providers ──────────
-// (Confirmados por el log de Render)
+// ─── Providers reales confirmados por el log de Render ───────────
 const PROVIDER_FILES = [
     'unlimplay',
     'pelisplushd',
     'pelixplay',
     'poseidonhd2',
     'cineplus123',
-    'cinemaos',
-    'multi',
 ];
 
 const VER_ORDER = ['latino', 'español', 'castellano', 'subtitulado'];
@@ -48,11 +45,6 @@ function pickResolver(provider) {
     return null;
 }
 
-/**
- * Llama a cada provider y unifica las fuentes.
- * Devuelve: { latino: { vimeos: url, streamwish: url }, español: {...} }
- * (formato que tu player.html ya consume)
- */
 async function getSourcesFromProviders(type, id) {
     const byLang = {};
     VER_ORDER.forEach(l => byLang[l] = {});
@@ -94,7 +86,6 @@ async function getSourcesFromProviders(type, id) {
         }
     }
 
-    // Quita idiomas que quedaron vacíos
     Object.keys(byLang).forEach(l => {
         if (!Object.keys(byLang[l]).length) delete byLang[l];
     });
