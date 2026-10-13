@@ -1,10 +1,34 @@
 // api/server.js
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const app = express();
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..')));
+
+// ═════════════════════════════════════════════════════════════════
+// STATIC — sirve player.html desde donde esté
+// (tu Dockerfile hace: COPY api/ ./ y COPY player.html ./ → /app)
+// ═════════════════════════════════════════════════════════════════
+const staticDirs = [
+    __dirname,                            // /app  ← tu caso
+    path.join(__dirname, 'public'),
+    path.join(__dirname, '..'),
+];
+let servedFrom = null;
+for (const dir of staticDirs) {
+    try {
+        if (fs.existsSync(path.join(dir, 'player.html'))) {
+            app.use(express.static(dir));
+            servedFrom = dir;
+            console.log(`[server] ✅ Estáticos desde: ${dir}`);
+            break;
+        }
+    } catch (_) {}
+}
+if (!servedFrom) {
+    console.warn('[server] ⚠️ No encontré player.html en:', staticDirs);
+}
 
 // ═════════════════════════════════════════════════════════════════
 // IMPORTS SEGUROS
@@ -43,7 +67,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/', (_req, res) => res.send('OK'));
 
 // ═════════════════════════════════════════════════════════════════
-// GET /api/servers  →  la ruta que usa tu player.html
+// GET /api/servers  →  la ruta que usa player.html
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/servers', async (req, res) => {
     const { id, type } = req.query;
@@ -88,9 +112,8 @@ app.get('/api/extract', async (req, res) => {
             return res.json({ error: 'Extractor no disponible' });
         }
 
-        // Busca la función correcta según cómo exporte tu extractor.js
-        const fn = extractor.extract
-                || extractor.extractStream
+        const fn = extractor.extractStream
+                || extractor.extract
                 || extractor.extractFromUrl
                 || extractor.getStream
                 || extractor.default;
