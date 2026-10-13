@@ -4,6 +4,7 @@ const { extractFileLions } = require('./extractors/filelions');
 const { extractVimeos } = require('./extractors/vimeos');
 const { extractDoodstream } = require('./extractors/doodstream'); // NUEVO
 const { extractMixdrop } = require('./extractors/mixdrop'); // NUEVO
+const { extractStreamtape } = require('./extractors/streamtape'); // NUEVO
 // ... importa los demás
 
 async function extractStream(embedUrl) {
@@ -16,6 +17,7 @@ async function extractStream(embedUrl) {
         if (/vimeos\.net/i.test(url)) return await extractVimeos(embedUrl);
         if (/doodstream|dood\.la|dood\.stream/i.test(url)) return await extractDoodstream(embedUrl); // NUEVO
         if (/mixdrop|mxdrop/i.test(url)) return await extractMixdrop(embedUrl); // NUEVO
+        if (/streamtape|stape/i.test(url)) return await extractStreamtape(embedUrl); // NUEVO
         // ... añade los demás
         console.warn('[extractor] Host no reconocido:', embedUrl);
         return null;
