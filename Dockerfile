@@ -1,5 +1,11 @@
+# ═══════════════════════════════════════════════════════════════════
+# Base image
+# ═══════════════════════════════════════════════════════════════════
 FROM node:20-bookworm-slim
 
+# ═══════════════════════════════════════════════════════════════════
+# Dependencias del sistema + Chromium (para Puppeteer)
+# ═══════════════════════════════════════════════════════════════════
 RUN apt-get update && apt-get install -y \
     chromium \
     ca-certificates \
@@ -21,23 +27,39 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
+    libxshmfence1 \
     wget \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
+# ═══════════════════════════════════════════════════════════════════
+# Variables de entorno
+# ═══════════════════════════════════════════════════════════════════
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV NODE_ENV=production
+ENV PORT=10000
 
+# ═══════════════════════════════════════════════════════════════════
+# Directorio de trabajo
+# ═══════════════════════════════════════════════════════════════════
 WORKDIR /app
 
+# ═══════════════════════════════════════════════════════════════════
+# Instalar dependencias de Node (cacheado si package.json no cambia)
+# ═══════════════════════════════════════════════════════════════════
 COPY api/package*.json ./
 RUN npm install --omit=dev
 
+# ═══════════════════════════════════════════════════════════════════
+# Copiar código de la API + player.html
+# ═══════════════════════════════════════════════════════════════════
 COPY api/ ./
 COPY player.html ./
 
+# ═══════════════════════════════════════════════════════════════════
+# Exponer puerto y arrancar
+# ═══════════════════════════════════════════════════════════════════
 EXPOSE 10000
-ENV PORT=10000
 
 CMD ["node", "server.js"]
