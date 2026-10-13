@@ -7,10 +7,8 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..')));
 
 // ═════════════════════════════════════════════════════════════════
-// IMPORTS SEGUROS — si un módulo falla, el server arranca igual
+// IMPORTS SEGUROS
 // ═════════════════════════════════════════════════════════════════
-
-// Registry (proveedores)
 let getSourcesFromProviders = async () => ({});
 try {
     ({ getSourcesFromProviders } = require('./providers/registry'));
@@ -19,7 +17,6 @@ try {
     console.error('[server] ❌ registry NO cargado:', err.message);
 }
 
-// TMDB (metadata)
 let tmdb = null;
 try {
     tmdb = require('./core/tmdb');
@@ -28,7 +25,6 @@ try {
     console.warn('[server] ⚠️ core/tmdb NO cargado:', err.message);
 }
 
-// Extractor (HLS/MP4)
 let extractor = null;
 try {
     extractor = require('./core/extractor');
@@ -40,22 +36,14 @@ try {
 // ═════════════════════════════════════════════════════════════════
 // HEALTH CHECKS
 // ═════════════════════════════════════════════════════════════════
-
-// Render usa /api/health según tu render.yaml
 app.get('/api/health', (_req, res) => {
-    res.status(200).json({
-        ok: true,
-        uptime: process.uptime(),
-        ts: Date.now()
-    });
+    res.status(200).json({ ok: true, uptime: process.uptime(), ts: Date.now() });
 });
 
-// Health check raíz
 app.get('/', (_req, res) => res.send('OK'));
 
 // ═════════════════════════════════════════════════════════════════
 // GET /api/servers  →  la ruta que usa tu player.html
-// Devuelve: { ok, id, type, meta, servers: { latino:{...}, español:{...} } }
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/servers', async (req, res) => {
     const { id, type } = req.query;
@@ -67,21 +55,9 @@ app.get('/api/servers', async (req, res) => {
     try {
         // ─── 1) Metadata desde TMDB ───────────────────────────
         let meta = null;
-        if (tmdb) {
+        if (tmdb && typeof tmdb.getMediaInfo === 'function') {
             try {
-                // Busca la función correcta de forma defensiva
-                const fn = tmdb.getMeta
-                        || tmdb.getDetails
-                        || tmdb.fetchMeta
-                        || tmdb.getMovie
-                        || tmdb.getInfo
-                        || tmdb.get;
-
-                if (typeof fn === 'function') {
-                    meta = await fn(id, type);
-                } else {
-                    console.warn('[server] tmdb no expone getMeta/getDetails/fetchMeta');
-                }
+                meta = await tmdb.getMediaInfo(id, type);
             } catch (e) {
                 console.warn('[server] TMDB falló:', e.message);
             }
@@ -90,13 +66,7 @@ app.get('/api/servers', async (req, res) => {
         // ─── 2) Servidores desde los providers ────────────────
         const servers = await getSourcesFromProviders(type, id);
 
-        res.json({
-            ok: true,
-            id,
-            type,
-            meta,
-            servers
-        });
+        res.json({ ok: true, id, type, meta, servers });
     } catch (err) {
         console.error('[server] /api/servers:', err);
         res.status(500).json({ ok: false, error: err.message });
@@ -105,7 +75,6 @@ app.get('/api/servers', async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════════
 // GET /api/extract?url=...  →  extrae .m3u8 / .mp4 de un embed
-// Devuelve: { stream, kind, referer }
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/extract', async (req, res) => {
     const url = req.query.url;
@@ -119,7 +88,7 @@ app.get('/api/extract', async (req, res) => {
             return res.json({ error: 'Extractor no disponible' });
         }
 
-        // Busca la función correcta de forma defensiva
+        // Busca la función correcta según cómo exporte tu extractor.js
         const fn = extractor.extract
                 || extractor.extractStream
                 || extractor.extractFromUrl
@@ -149,8 +118,6 @@ app.get('/api/extract', async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════════
 // POST /api/embed-links  →  alias estilo PlayLatinSRC
-// Body: { type, id }
-// Devuelve: { ok, id, type, servers }
 // ═════════════════════════════════════════════════════════════════
 app.post('/api/embed-links', async (req, res) => {
     const { type, id } = req.body || {};
