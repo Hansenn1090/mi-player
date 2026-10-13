@@ -23,6 +23,31 @@
   #chip.mp4{background:rgba(59,130,246,.25);border-color:rgba(59,130,246,.5);color:#bfdbfe}
   #chip.iframe{background:rgba(148,163,184,.25);border-color:rgba(148,163,184,.5);color:#e2e8f0}
   #chip.hidden{opacity:0}
+
+  /* ════════ NUEVO: Barra de idiomas (estilo PlayLatinSRC) ════════ */
+  #ver-bar{
+    position:fixed;top:14px;left:50%;transform:translateX(-50%);
+    z-index:40;display:none;gap:6px;flex-wrap:wrap;
+    max-width:calc(100% - 260px);justify-content:center;
+    pointer-events:auto;
+  }
+  #ver-bar.on{display:flex}
+  .ver-btn{
+    appearance:none;cursor:pointer;font:inherit;
+    font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    padding:8px 14px;border-radius:999px;
+    background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);
+    color:rgba(255,255,255,.75);backdrop-filter:blur(10px);
+    transition:all .15s;white-space:nowrap;
+  }
+  .ver-btn:hover{background:rgba(40,44,60,.95);color:#fff;border-color:rgba(255,255,255,.35)}
+  .ver-btn.active{background:#2563eb;border-color:#2563eb;color:#fff;box-shadow:0 0 14px rgba(37,99,235,.5)}
+  @media(max-width:600px){
+    #ver-bar{top:52px;left:14px;right:14px;transform:none;max-width:none;justify-content:flex-start}
+    .ver-btn{font-size:10px;padding:6px 11px}
+  }
+  /* ═════════════════════════════════════════════════════════════ */
+
   #btn-servers{position:fixed;top:14px;right:14px;z-index:40;padding:8px 14px;border-radius:10px;background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);display:flex;align-items:center;gap:6px}
   #btn-servers:hover{background:rgba(40,44,60,.95)}
   #panel-servers{position:fixed;top:60px;right:14px;z-index:40;width:300px;max-height:70vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
@@ -78,6 +103,10 @@
 <div id="backdrop"></div>
 <div id="stage"></div>
 <div id="chip" class="hidden">—</div>
+
+<!-- ════════ NUEVO: Barra de versiones de idioma ════════ -->
+<div id="ver-bar"></div>
+<!-- ═══════════════════════════════════════════════════ -->
 
 <button id="btn-servers">
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="6" rx="1"/><rect x="3" y="10" width="18" height="6" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
@@ -148,15 +177,25 @@ const els = {
   btnPlay:$('btn-play'), btnRew:$('btn-rew'), btnFwd:$('btn-fwd'),
   timeCur:$('time-cur'), timeDur:$('time-dur'),
   scrubber:$('scrubber'), scrubberFill:$('scrubber-fill'),
+  verBar:$('ver-bar'),   // ← NUEVO
 };
 
-const LANG_ORDER = ['latino','español','subtitulado'];
+/* ══════════════════════════════════════════════════════════════════════════
+   NUEVO: Configuración de idiomas
+   Debe coincidir con las claves que devuelve tu backend dentro de
+   `data.servers`, ej: { latino: {...}, español: {...}, subtitulado: {...} }
+   ══════════════════════════════════════════════════════════════════════════ */
+const LANG_ORDER  = ['latino','español','subtitulado','castellano'];
+const LANG_LABELS = { latino:'Latino', español:'Español', castellano:'Castellano', subtitulado:'Subtitulado' };
+const LANG_KEY    = 'ulp.version';   // sessionStorage key
+
 const PROVIDER_DISPLAY = {
   vimeos:'Vimeos', voe:'VOE', streamwish:'StreamWish', vidhide:'VidHide',
   filelions:'FileLions', filemoon:'FileMoon', doodstream:'DoodStream',
   fembed:'Fembed', streamtape:'StreamTape', mixdrop:'MixDrop', okru:'OkRu',
   uqload:'Uqload', vidspeed:'VidSpeed', vidmoly:'Vidmoly',
   mp4upload:'Mp4Upload', netu:'Netu', fastream:'Fastream',
+  unlimplay:'UnlimPlay',
 };
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -205,6 +244,80 @@ function setChip(k){
 }
 function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.remove('on'); }
 function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   NUEVO: Manejo de idiomas (sessionStorage)
+   ══════════════════════════════════════════════════════════════════════════ */
+function rememberedLang(){
+  try {
+    const s = sessionStorage.getItem(LANG_KEY);
+    return LANG_ORDER.includes(s) ? s : '';
+  } catch(e){ return ''; }
+}
+function rememberLang(lang){
+  try { sessionStorage.setItem(LANG_KEY, lang); } catch(e){}
+}
+
+/**
+ * Dibuja la barra de idiomas disponibles según `embeds`.
+ * Solo la muestra si hay 2+ idiomas (con 1 no tiene sentido).
+ */
+function renderVersions(){
+  if (!els.verBar) return;
+  const present = LANG_ORDER.filter(l => embeds[l] && Object.keys(embeds[l]).length > 0);
+
+  // Elegir idioma: preferencia guardada → primero disponible
+  const wanted = rememberedLang();
+  state.currentLang = present.includes(wanted) ? wanted : present[0];
+
+  if (present.length < 2){
+    els.verBar.classList.remove('on');
+    els.verBar.innerHTML = '';
+    return;
+  }
+
+  els.verBar.innerHTML = '';
+  present.forEach(lang => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ver-btn' + (lang === state.currentLang ? ' active' : '');
+    b.dataset.lang = lang;
+    b.textContent = LANG_LABELS[lang] || cap(lang);
+    els.verBar.appendChild(b);
+  });
+  els.verBar.classList.add('on');
+}
+
+/**
+ * Al cambiar de idioma: re-extrae los servidores de ese idioma y
+ * auto-carga el mejor. Si el usuario estaba viendo algo, se reemplaza.
+ */
+async function switchLang(lang){
+  if (!embeds[lang] || lang === state.currentLang) return;
+  state.currentLang = lang;
+  rememberLang(lang);
+
+  // Actualizar botones activos
+  els.verBar.querySelectorAll('.ver-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.lang === lang);
+  });
+
+  // Limpiar estado del servidor actual
+  teardown();
+  _extracted = {};
+  state.currentSrv = null;
+  state.currentKind = null;
+  setChip(null);
+  els.backdrop.classList.remove('hidden');
+
+  showLoading('Cambiando a ' + (LANG_LABELS[lang] || lang) + '…');
+  const srvs = embeds[lang] || {};
+  await extractAllServers(srvs);
+  renderServersList();
+  autoLoadBest();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
 
 async function extractFromBackend(embedUrl){
   try {
@@ -371,6 +484,15 @@ function autoLoadBest(){
 
 function renderServersList(){
   els.serversList.innerHTML = '';
+
+  // Encabezado de idioma actual (informativo)
+  if (state.currentLang){
+    const head = document.createElement('div');
+    head.style.cssText = 'font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px 2px;font-weight:700';
+    head.textContent = 'Idioma: ' + (LANG_LABELS[state.currentLang] || cap(state.currentLang));
+    els.serversList.appendChild(head);
+  }
+
   const names = Object.keys(_extracted);
   const prio = { hls:0, mp4:1, iframe:2 };
   names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
@@ -415,8 +537,8 @@ function forward10(){
 }
 
 els.btnPlay.onclick = togglePlay;
-els.btnRew.onclick = rewind10;
-els.btnFwd.onclick = forward10;
+els.btnRew.onclick = rew10 => rewind10();
+els.btnFwd.onclick = () => forward10();
 els.centerPlay.onclick = () => {
   if (!state.currentSrv) autoLoadBest();
   else togglePlay();
@@ -440,6 +562,17 @@ els.scrubber.addEventListener('change', e => {
 });
 els.scrubber.addEventListener('pointerdown', () => state.isSeeking = true);
 els.scrubber.addEventListener('pointerup', () => state.isSeeking = false);
+
+/* ════════ NUEVO: Click en barra de idiomas ════════ */
+if (els.verBar){
+  els.verBar.addEventListener('click', (e) => {
+    const b = e.target.closest('.ver-btn');
+    if (!b) return;
+    e.preventDefault();
+    switchLang(b.dataset.lang);
+  });
+}
+/* ══════════════════════════════════════════════════ */
 
 let _idleTimer = null;
 function resetIdle(){
@@ -490,7 +623,16 @@ async function init(){
     }
 
     embeds = data.servers;
-    state.currentLang = LANG_ORDER.find(l => embeds[l]) || Object.keys(embeds)[0];
+
+    // ════════ NUEVO: Renderizar barra de idiomas ════════
+    renderVersions();
+    // ═══════════════════════════════════════════════════
+
+    // Si por alguna razón currentLang quedó vacío, elegir uno
+    if (!state.currentLang){
+      state.currentLang = LANG_ORDER.find(l => embeds[l]) || Object.keys(embeds)[0];
+    }
+
     hideLoading();
 
     const srvs = embeds[state.currentLang] || {};
