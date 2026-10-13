@@ -2,7 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 
-// ─── TMDB (para obtener título/año antes de llamar a los providers) ───
+// ─── TMDB ────────────────────────────────────────────────────────
 let tmdb = null;
 try {
     tmdb = require('../core/tmdb');
@@ -11,12 +11,20 @@ try {
     console.warn('[registry] ⚠️ core/tmdb NO cargado:', err.message);
 }
 
-// ─── Auto-descubre TODOS los .js de /providers excepto este ──────
+// ─── Providers DESHABILITADOS temporalmente ──────────────────────
+// pelixplay usa Puppeteer con stealth y crashea el contenedor
+// (512MB de RAM en free tier no alcanza). Lo re-habilitamos cuando
+// lo arreglemos.
+const SKIP_PROVIDERS = new Set(['pelixplay']);
+
+// ─── Auto-descubre .js de /providers excepto este ───────────────
 const PROVIDER_FILES = fs.readdirSync(__dirname)
     .filter(f => f.endsWith('.js') && f !== 'registry.js')
-    .map(f => f.replace(/\.js$/, ''));
+    .map(f => f.replace(/\.js$/, ''))
+    .filter(f => !SKIP_PROVIDERS.has(f));
 
-// Idiomas que reconocemos como claves dentro de un resultado
+console.log('[registry] Providers activos:', PROVIDER_FILES.join(', '));
+
 const KNOWN_LANGS = new Set([
     'latino', 'español', 'espanol', 'castellano',
     'subtitulado', 'sub', 'subtitle', 'subtitles',
@@ -31,7 +39,6 @@ function safeRequire(file) {
             console.warn(`[registry] Skip (no exporta objeto): ${file}`);
             return null;
         }
-        console.log(`[registry] ✅ ${file} cargado`);
         return mod;
     } catch (err) {
         console.warn(`[registry] ❌ Error cargando ${file}:`, err.message);
@@ -39,39 +46,38 @@ function safeRequire(file) {
     }
 }
 
-// ─── Detecta la función correcta del provider ────────────────────
-// Prioridad: search > scrapeX > resolve > extract > scrape > getServers
 function pickResolver(provider) {
-    // 1) search explícita
     if (typeof provider.search === 'function') return provider.search.bind(provider);
-
-    // 2) Función que empiece con "scrape"
     for (const key of Object.keys(provider)) {
         if (/^scrape/i.test(key) && typeof provider[key] === 'function') {
             return provider[key].bind(provider);
         }
     }
-
-    // 3) Nombres clásicos
     const fallbacks = ['resolve', 'extract', 'scrape', 'getServers', 'get'];
     for (const name of fallbacks) {
         if (typeof provider[name] === 'function') return provider[name].bind(provider);
     }
-
     return null;
 }
 
-// ─── Normaliza el resultado de un provider a { lang: { serverName: url } } ─
+// ─── Timeout por provider ────────────────────────────────────────
+function withTimeout(promise, ms, label) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Timeout ${ms}ms en ${label}`)), ms)
+        )
+    ]);
+}
+
 function normalizeResult(result, providerName, byLang) {
     if (!result) return;
 
-    // String suelto → latino
     if (typeof result === 'string') {
         byLang.latino[providerName] = result;
         return;
     }
 
-    // Array → latino con índices
     if (Array.isArray(result)) {
         result.forEach((url, i) => {
             if (url && typeof url === 'string') {
@@ -84,12 +90,10 @@ function normalizeResult(result, providerName, byLang) {
 
     if (typeof result !== 'object') return;
 
-    // ¿Es un objeto con idiomas como claves?
     const keys = Object.keys(result);
     const hasLangKeys = keys.some(k => KNOWN_LANGS.has(k.toLowerCase()));
 
     if (hasLangKeys) {
-        // { latino: { StreamWish: url, FileLions: url }, español: {...} }
         for (const [lang, servers] of Object.entries(result)) {
             const langKey = lang.toLowerCase();
             if (!byLang[langKey]) byLang[langKey] = {};
@@ -112,7 +116,6 @@ function normalizeResult(result, providerName, byLang) {
             }
         }
     } else {
-        // { StreamWish: url, FileLions: url } → asignar a latino
         for (const [srvName, url] of Object.entries(result)) {
             if (url && typeof url === 'string') {
                 byLang.latino[srvName] = url;
@@ -121,19 +124,16 @@ function normalizeResult(result, providerName, byLang) {
     }
 }
 
-// ═════════════════════════════════════════════════════════════════
-// FUNCIÓN PRINCIPAL
-// ═════════════════════════════════════════════════════════════════
 async function getSourcesFromProviders(type, id) {
     const byLang = {
         latino: {}, español: {}, castellano: {}, subtitulado: {},
     };
 
-    // 1) Obtener metadata de TMDB → título y año
+    // 1) TMDB → título y año
     let title = '', year = '';
     if (tmdb && typeof tmdb.getMediaInfo === 'function') {
         try {
-            const meta = await tmdb.getMediaInfo(id, type);
+            const meta = await withTimeout(tmdb.getMediaInfo(id, type), 8000, 'tmdb');
             title = meta.title || '';
             year = String(meta.year || '');
             console.log(`[registry] TMDB: "${title}" (${year})`);
@@ -143,38 +143,42 @@ async function getSourcesFromProviders(type, id) {
     }
 
     if (!title) {
-        console.warn('[registry] Sin título de TMDB, no se puede buscar en providers');
+        console.warn('[registry] Sin título de TMDB');
         return {};
     }
 
-    // 2) Llamar a cada provider con la firma real (title, year, id, type)
+    // 2) Cada provider — SECUENCIAL y con timeout de 12s
     for (const file of PROVIDER_FILES) {
         const provider = safeRequire(file);
         if (!provider) continue;
 
         const fn = pickResolver(provider);
         if (!fn) {
-            console.warn(`[registry] Skip (sin función search/scrape/resolve): ${file}`);
+            console.warn(`[registry] Skip (sin resolver): ${file}`);
             continue;
         }
 
         const providerName = provider.name || file;
 
         try {
-            console.log(`[registry] ▶ ${file}(${title}, ${year}, ${id}, ${type})`);
-            const result = await fn(title, year, id, type);
+            console.log(`[registry] ▶ ${file}`);
+            const result = await withTimeout(
+                fn(title, year, id, type),
+                12000,
+                file
+            );
             normalizeResult(result, providerName, byLang);
+            console.log(`[registry] ✅ ${file} OK`);
         } catch (err) {
             console.warn(`[registry] ❌ ${file}:`, err.message);
         }
     }
 
-    // 3) Limpiar idiomas vacíos
     Object.keys(byLang).forEach(l => {
         if (!Object.keys(byLang[l]).length) delete byLang[l];
     });
 
-    console.log('[registry] Resultado final:', JSON.stringify(byLang).slice(0, 500));
+    console.log('[registry] Resultado:', JSON.stringify(byLang).slice(0, 400));
     return byLang;
 }
 
