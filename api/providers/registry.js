@@ -2,25 +2,15 @@
 const path = require('path');
 const fs = require('fs');
 
-// ─── Providers reales confirmados por el log de Render ───────────
-const PROVIDER_FILES = [
-    'unlimplay',
-    'pelisplushd',
-    'pelixplay',
-    'poseidonhd2',
-    'cineplus123',
-];
+// Auto-descubre TODOS los .js de /providers excepto este
+const PROVIDER_FILES = fs.readdirSync(__dirname)
+    .filter(f => f.endsWith('.js') && f !== 'registry.js')
+    .map(f => f.replace(/\.js$/, ''));
 
 const VER_ORDER = ['latino', 'español', 'castellano', 'subtitulado'];
 
-// ─── Carga segura: si un provider falla, NO rompe el server ──────
 function safeRequire(file) {
     try {
-        const full = path.join(__dirname, file + '.js');
-        if (!fs.existsSync(full)) {
-            console.warn(`[registry] Skip (no existe): ${file}.js`);
-            return null;
-        }
         const mod = require('./' + file);
         if (!mod || typeof mod !== 'object') {
             console.warn(`[registry] Skip (no exporta objeto): ${file}`);
@@ -34,7 +24,6 @@ function safeRequire(file) {
     }
 }
 
-// ─── Detecta qué función tiene el provider para resolver ─────────
 function pickResolver(provider) {
     const candidates = ['resolve', 'extract', 'scrape', 'getServers', 'get', 'search'];
     for (const name of candidates) {
@@ -55,7 +44,7 @@ async function getSourcesFromProviders(type, id) {
 
         const resolved = pickResolver(provider);
         if (!resolved) {
-            console.warn(`[registry] Skip (sin función resolve/extract): ${file}`);
+            console.warn(`[registry] Skip (sin resolve/extract): ${file}`);
             continue;
         }
 
