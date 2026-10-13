@@ -2,638 +2,950 @@
 <html class="h-full bg-black select-none" lang="es">
 <head>
 <meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0, user-scalable=no" name="viewport"/>
-<title>UnLim Play</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
-<style>
-  html,body{margin:0;padding:0;background:#000;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;height:100%}
-  #stage{position:fixed;inset:0;background:#000;z-index:1}
-  #stage iframe.ulp-iframe{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:5;pointer-events:auto;background:#000}
-  #stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
-  #backdrop{position:fixed;inset:0;z-index:0;background-size:cover;background-position:center top;filter:brightness(.4) blur(2px);transition:opacity .6s}
-  #backdrop::before{content:'';position:absolute;inset:0;background:linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.85) 100%)}
-  #backdrop.hidden{opacity:0}
-  #center-play{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;width:88px;height:88px;border-radius:50%;background:linear-gradient(145deg,#2563eb,#1d4ed8);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 40px rgba(37,99,235,.6);border:3px solid rgba(255,255,255,.2);transition:all .2s;opacity:1}
-  #center-play:hover{transform:translate(-50%,-50%) scale(1.08)}
-  #center-play.hidden{opacity:0;pointer-events:none}
-  #center-play svg{margin-left:5px}
-  #chip{position:fixed;top:14px;left:14px;z-index:40;padding:6px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.15);color:#fff;pointer-events:none;transition:opacity .3s}
-  #chip.hls{background:rgba(34,197,94,.25);border-color:rgba(34,197,94,.5);color:#bbf7d0}
-  #chip.mp4{background:rgba(59,130,246,.25);border-color:rgba(59,130,246,.5);color:#bfdbfe}
-  #chip.iframe{background:rgba(148,163,184,.25);border-color:rgba(148,163,184,.5);color:#e2e8f0}
-  #chip.hidden{opacity:0}
-
-  #ver-bar{
-    position:fixed;top:14px;left:50%;transform:translateX(-50%);
-    z-index:40;display:none;gap:6px;flex-wrap:wrap;
-    max-width:calc(100% - 260px);justify-content:center;
-    pointer-events:auto;
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Smart TV Video Player</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            cyan: '#00d2ff',
+            blue: '#2563eb',
+            dark: '#0a0a0c',
+            track: '#383a42',
+            card: 'rgba(20, 22, 28, 0.85)'
+          }
+        },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif']
+        }
+      }
+    }
   }
-  #ver-bar.on{display:flex}
-  .ver-btn{
-    appearance:none;cursor:pointer;font:inherit;
-    font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
-    padding:8px 14px;border-radius:999px;
-    background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);
-    color:rgba(255,255,255,.75);backdrop-filter:blur(10px);
-    transition:all .15s;white-space:nowrap;
+</script>
+<style data-purpose="scrubber-range-styling">
+  input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+  input[type=range]:focus { outline: none; }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 9999px; background: transparent; }
+  input[type=range]::-moz-range-track { height: 4px; border-radius: 9999px; background: transparent; }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; height: 14px; width: 14px; border-radius: 50%;
+    background: #00d2ff; margin-top: -5px; box-shadow: 0 0 10px rgba(0, 210, 255, 0.85);
+    border: 2px solid #ffffff; transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
-  .ver-btn:hover{background:rgba(40,44,60,.95);color:#fff;border-color:rgba(255,255,255,.35)}
-  .ver-btn.active{background:#2563eb;border-color:#2563eb;color:#fff;box-shadow:0 0 14px rgba(37,99,235,.5)}
-  @media(max-width:600px){
-    #ver-bar{top:52px;left:14px;right:14px;transform:none;max-width:none;justify-content:flex-start}
-    .ver-btn{font-size:10px;padding:6px 11px}
+  input[type=range]::-moz-range-thumb {
+    height: 14px; width: 14px; border-radius: 50%; background: #00d2ff;
+    border: 2px solid #ffffff; box-shadow: 0 0 10px rgba(0, 210, 255, 0.85);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
-
-  #btn-servers{position:fixed;top:14px;right:14px;z-index:40;padding:8px 14px;border-radius:10px;background:rgba(20,22,30,.85);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);display:flex;align-items:center;gap:6px}
-  #btn-servers:hover{background:rgba(40,44,60,.95)}
-  #panel-servers{position:fixed;top:60px;right:14px;z-index:40;width:300px;max-height:70vh;background:rgba(10,11,18,.97);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;backdrop-filter:blur(20px);display:none;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
-  #panel-servers.on{display:block}
-  #panel-servers h3{font-size:11px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px 0}
-  .srv-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 12px;margin-bottom:6px;border-radius:8px;background:rgba(43,50,63,.6);border:1px solid rgba(255,255,255,.08);color:#d1d5db;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;text-align:left}
-  .srv-btn:hover{background:rgba(60,70,88,.9);color:#fff}
-  .srv-btn.active{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
-  .srv-kind{font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;line-height:1}
-  .kind-hls{background:rgba(34,197,94,.25);color:#86efac;border:1px solid rgba(34,197,94,.5)}
-  .kind-mp4{background:rgba(59,130,246,.25);color:#93c5fd;border:1px solid rgba(59,130,246,.5)}
-  .kind-iframe{background:rgba(148,163,184,.25);color:#cbd5e1;border:1px solid rgba(148,163,184,.4)}
-  #hud{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:24px 20px 16px;background:linear-gradient(to top,rgba(0,0,0,.95) 0%,rgba(0,0,0,.7) 60%,transparent 100%);transition:opacity .35s,transform .35s}
-  #hud.hidden{opacity:0;pointer-events:none;transform:translateY(20px)}
-  #hud-row{display:flex;align-items:center;gap:16px;margin-bottom:14px}
-  #poster-box{width:56px;height:80px;border-radius:8px;overflow:hidden;background:#1a1a1a;border:1px solid rgba(255,255,255,.15);flex-shrink:0}
-  #poster-box img{width:100%;height:100%;object-fit:cover;display:block}
-  #info{flex:1;min-width:0}
-  #title{font-size:18px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #meta{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #controls{display:flex;align-items:center;gap:8px;flex-shrink:0}
-  .ctrl-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.75);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
-  .ctrl-btn:hover{background:rgba(255,255,255,.12);color:#fff}
-  .ctrl-btn.play{background:rgba(37,99,235,.25);border-color:rgba(96,165,250,.5);color:#93c5fd}
-  .ctrl-btn.play:hover{background:rgba(37,99,235,.4);color:#fff}
-  .key-badge{background:rgba(255,255,255,.85);color:#000;font-size:9px;font-weight:800;border-radius:3px;padding:2px 5px;line-height:1}
-  #scrubber-row{display:flex;align-items:center;gap:12px}
-  #time-cur,#time-dur{font-size:12px;font-family:ui-monospace,monospace;color:#fff;min-width:48px;text-align:center}
-  #time-dur{color:rgba(255,255,255,.6)}
-  #scrubber-wrap{flex:1;position:relative;height:20px;display:flex;align-items:center}
-  #scrubber-track{width:100%;height:4px;background:rgba(255,255,255,.15);border-radius:2px;overflow:hidden;position:relative}
-  #scrubber-fill{position:absolute;left:0;top:0;height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:2px;transition:width .1s}
-  #scrubber{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;-webkit-appearance:none;background:transparent}
-  #scrubber::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:#00d2ff;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px rgba(0,210,255,.8);cursor:pointer}
-  #loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:25;display:none;align-items:center;gap:10px;padding:14px 22px;border-radius:14px;background:rgba(0,0,0,.9);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:13px;backdrop-filter:blur(12px)}
-  #loading.on{display:flex}
-  #loading .sp{width:16px;height:16px;border:2px solid rgba(96,165,250,.2);border-top-color:#60a5fa;border-radius:50%;animation:spin .7s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:60;padding:10px 18px;border-radius:10px;background:rgba(10,11,18,.95);border:1px solid rgba(96,165,250,.4);color:#93c5fd;font-size:12px;font-weight:500;backdrop-filter:blur(12px);opacity:0;transition:all .3s;pointer-events:none;max-width:85vw;text-align:center}
-  #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
-  #show-hud{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:32;padding:5px 16px;border-radius:0 0 10px 10px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.1);border-top:none;color:rgba(255,255,255,.7);font-size:11px;font-weight:600;cursor:pointer;display:none;backdrop-filter:blur(10px)}
-  #show-hud.on{display:block}
-  @media(max-width:600px){
-    #hud-row{flex-wrap:wrap}
-    #controls{width:100%;justify-content:flex-end;margin-top:8px}
-    #center-play{width:70px;height:70px}
-    #panel-servers{width:calc(100vw - 28px);right:14px;left:14px}
+  input[type=range]:hover::-webkit-slider-thumb, input[type=range]:active::-webkit-slider-thumb {
+    transform: scale(1.3); box-shadow: 0 0 14px #00d2ff;
   }
 </style>
+<style data-purpose="animations-and-helpers">
+  .hud-transition { transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+  .hud-hidden { opacity: 0 !important; pointer-events: none !important; transform: translateY(16px); }
+  .key-badge {
+    background: rgba(255, 255, 255, 0.9); color: #000; font-size: 10px; font-weight: 800;
+    letter-spacing: 0.05em; border-radius: 2px; padding: 1px 4px;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1.2;
+  }
+  .aspect-mode-16-9 { width: 100% !important; height: 100% !important; object-fit: contain; transform: scale(1); }
+  .aspect-mode-stretch { width: 100% !important; height: 100% !important; transform: scale(1.05, 1.05); }
+  .aspect-mode-4-3 { width: 75% !important; height: 100% !important; margin: 0 auto; }
+  .tv-btn-normal { background: rgba(43, 50, 63, 0.82); backdrop-filter: blur(10px); color: #d1d5db; transition: all 0.2s ease; }
+  .tv-btn-normal:hover { background: rgba(60, 70, 88, 0.95); color: #ffffff; }
+  .tv-btn-active {
+    background: rgba(72, 85, 107, 0.98) !important; backdrop-filter: blur(10px);
+    color: #ffffff !important; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); border-color: #00d2ff !important;
+  }
+  .options-drawer-panel {
+    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .options-drawer-collapsed {
+    opacity: 0; pointer-events: none; transform: translateY(16px) scale(0.98);
+    max-height: 0; margin-bottom: 0 !important; padding-top: 0 !important;
+    padding-bottom: 0 !important; overflow: hidden;
+  }
+  .options-drawer-expanded { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); max-height: 600px; }
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 210, 255, 0.4); border-radius: 4px; }
+
+  .srv-skeleton {
+    background: linear-gradient(90deg, rgba(43,50,63,0.4) 25%, rgba(60,70,88,0.6) 50%, rgba(43,50,63,0.4) 75%);
+    background-size: 200% 100%; animation: srv-shimmer 1.4s infinite;
+  }
+  @keyframes srv-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+</style>
 </head>
-<body>
+<body class="h-full w-full overflow-hidden bg-black text-white font-sans antialiased relative">
 
-<div id="backdrop"></div>
-<div id="stage"></div>
-<div id="chip" class="hidden">—</div>
+<main class="relative w-full h-full bg-black overflow-hidden flex items-center justify-center" id="playerContainer">
 
-<div id="ver-bar"></div>
+  <div class="absolute inset-0 w-full h-full flex items-center justify-center z-[1] bg-black" id="video-wrapper">
+    <iframe allow="autoplay; fullscreen; encrypted-media; picture-in-picture; payment; display-capture; clipboard-write"
+      allowfullscreen="true"
+      class="w-full h-full absolute inset-0 border-0 aspect-mode-16-9 transition-transform duration-300 bg-black pointer-events-auto"
+      height="100%" id="unlimplay-iframe" mozallowfullscreen="true"
+      referrerpolicy="no-referrer"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-downloads"
+      scrolling="no" src="" title="Reproductor Streaming Video" webkitallowfullscreen="true" width="100%">
+    </iframe>
+  </div>
 
-<button id="btn-servers">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="6" rx="1"/><rect x="3" y="10" width="18" height="6" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/></svg>
-  Servidores
-</button>
+  <div class="absolute inset-x-0 bottom-0 h-32 z-20 pointer-events-auto opacity-0" id="bottom-hover-detector"></div>
 
-<div id="panel-servers">
-  <h3>Servidores disponibles</h3>
-  <div id="servers-list"></div>
-</div>
+  <header class="absolute top-5 right-6 z-30 pointer-events-none hud-element hud-transition flex items-center justify-end">
+    <aside aria-label="Network Status" class="pointer-events-auto flex items-center space-x-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 shadow-md">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-white/90 text-xs sm:text-sm font-semibold tracking-wider font-mono" id="bitrate-indicator">4.2MB/S</span>
+    </aside>
+  </header>
 
-<div id="center-play">
-  <svg width="34" height="34" viewBox="0 0 24 24" fill="#fff"><polygon points="6,4 20,12 6,20"/></svg>
-</div>
+  <div class="fixed top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 -translate-y-3 transition-all duration-300 flex items-center space-x-2.5 px-4 py-2 rounded-xl bg-zinc-900/90 border border-brand-cyan/40 text-brand-cyan shadow-xl backdrop-blur-md" id="toast-notify">
+    <span class="w-2 h-2 rounded-full bg-brand-cyan animate-ping"></span>
+    <span class="text-xs sm:text-sm font-medium text-white tracking-wide" id="toast-text">Cargando…</span>
+  </div>
 
-<div id="loading"><div class="sp"></div><span id="loading-text">Cargando…</span></div>
-<div id="toast"></div>
+  <div class="absolute z-30 pointer-events-none opacity-0 scale-75 transition-all duration-300 ease-out flex items-center justify-center p-6 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-white shadow-2xl" id="action-flash">
+    <svg class="w-12 h-12" fill="currentColor" id="action-flash-icon" viewBox="0 0 24 24"></svg>
+  </div>
 
-<div id="hud">
-  <div id="hud-row">
-    <div id="poster-box"><img id="poster-img" src="" alt=""/></div>
-    <div id="info">
-      <div id="title">Cargando…</div>
-      <div id="meta">—</div>
-    </div>
-    <div id="controls">
-      <button class="ctrl-btn play" id="btn-play"><span class="key-badge">OK</span> Reproducir</button>
-      <button class="ctrl-btn" id="btn-rew"><span class="key-badge">◀</span> Detrás</button>
-      <button class="ctrl-btn" id="btn-fwd"><span class="key-badge">▶</span> Adelante</button>
+  <div class="absolute inset-x-0 bottom-0 z-30 hud-element hud-transition pb-2 pt-20 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none flex flex-col justify-end" id="osd-hud">
+    <div class="w-full max-w-[1920px] mx-auto px-6 md:px-12 lg:px-14 pb-1 pointer-events-auto space-y-3">
+
+      <div class="options-drawer-panel options-drawer-collapsed bg-zinc-950/95 backdrop-blur-xl border border-white/15 rounded-2xl p-4 sm:p-5 shadow-[0_20px_50px_rgba(0,0,0,0.9)] flex flex-col gap-3.5 mb-2 overflow-y-auto max-h-[560px] custom-scrollbar" id="options-panel-container">
+
+        <div class="space-y-1.5 pb-3 border-b border-white/10" id="group-server-options">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">SERVIDORES DE REPRODUCCIÓN</span>
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" id="servers-status-badge">CARGANDO</span>
+            </div>
+            <span class="text-[10px] text-brand-cyan/90 font-mono tracking-tight" id="badge-active-server">—</span>
+          </div>
+          <div class="flex flex-wrap sm:flex-nowrap items-center gap-2" role="group" id="servers-list">
+            <div class="tv-btn-normal srv-skeleton px-4 py-2 text-xs sm:text-sm font-medium rounded-lg w-full sm:w-auto min-w-[200px] h-10"></div>
+            <div class="tv-btn-normal srv-skeleton px-4 py-2 text-xs sm:text-sm font-medium rounded-lg w-full sm:w-auto min-w-[200px] h-10"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-3 border-b border-white/10">
+          <div class="space-y-1.5" id="group-audio-options">
+            <div class="flex items-center justify-between">
+              <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">AUDIO Y DOBLAJE</span>
+              <span class="text-[10px] text-brand-cyan/90 font-mono tracking-tight" id="badge-active-audio">🇲🇽 Español Latino</span>
+            </div>
+            <div class="inline-flex rounded overflow-hidden shadow-lg border border-white/10 divide-x divide-white/10 w-full" role="group">
+              <button class="tv-btn-normal tv-btn-active px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-audio="latino" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>🇲🇽 Español Latino</span>
+              </button>
+              <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-audio="castellano" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon hidden" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>🇪🇸 Castellano</span>
+              </button>
+              <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-audio="subtitulado" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon hidden" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>📝 Subtitulado</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-1.5" id="group-subtitle-options">
+            <div class="flex items-center justify-between">
+              <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">SUBTÍTULOS</span>
+              <span class="text-[10px] text-neutral-400 font-mono tracking-tight" id="badge-active-subtitle">DESACTIVADOS</span>
+            </div>
+            <div class="inline-flex rounded overflow-hidden shadow-lg border border-white/10 divide-x divide-white/10 w-full" role="group">
+              <button class="tv-btn-normal tv-btn-active px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-sub="off" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>Desactivados</span>
+              </button>
+              <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-sub="es" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon hidden" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>Español</span>
+              </button>
+              <button class="tv-btn-normal px-3 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-sub="en" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon hidden" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>Inglés (CC)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 pt-1">
+          <div class="space-y-1.5" id="group-formato-pantalla">
+            <span class="block text-[11px] sm:text-xs font-semibold text-neutral-400 tracking-wider uppercase">FORMATO DE PANTALLA</span>
+            <div class="inline-flex rounded overflow-hidden shadow-lg border border-white/10 divide-x divide-white/10" role="group">
+              <button class="tv-btn-normal tv-btn-active px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium flex items-center space-x-1.5 transition" data-aspect="16-9" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>16:9 Normal</span>
+              </button>
+              <button class="tv-btn-normal px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium flex items-center space-x-1.5 transition" data-aspect="stretch" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon hidden" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>Pantalla Completa</span>
+              </button>
+              <button class="tv-btn-normal px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium flex items-center space-x-1.5 transition" data-aspect="4-3" type="button">
+                <svg class="w-3.5 h-3.5 fill-current text-white check-icon hidden" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
+                <span>4:3</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <button class="tv-btn-normal px-3.5 py-2 text-xs rounded-lg text-rose-300 hover:text-white transition flex items-center space-x-1.5" id="btn-bar-feedback" type="button">
+              <svg class="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+              <span>Reportar Falla</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4 sm:gap-5" data-purpose="bottom-integrated-player-bar">
+        <div class="w-14 h-20 sm:w-16 sm:h-24 md:w-20 md:h-28 rounded-lg overflow-hidden shadow-2xl bg-neutral-900 border border-white/10 flex-shrink-0 relative group cursor-pointer hover:border-brand-cyan transition" id="poster-thumb" title="Ver detalles">
+          <img alt="Poster" class="w-full h-full object-cover bg-neutral-800" id="poster-img" loading="lazy" src=""/>
+          <div class="absolute inset-0 bg-black/20 group-hover:bg-transparent transition"></div>
+        </div>
+
+        <div class="flex-1 flex flex-col justify-center min-w-0 space-y-2.5 sm:space-y-3">
+          <div class="flex items-center space-x-3 sm:space-x-4" data-purpose="timeline-scrubber">
+            <span class="text-xs sm:text-sm md:text-base font-medium tracking-tight text-white min-w-[45px] sm:min-w-[50px] text-right font-mono" id="current-time-text">00:00</span>
+            <div class="relative flex-grow flex items-center group py-2" id="scrubber-container">
+              <div class="w-full h-1 bg-brand-track rounded-full overflow-hidden relative pointer-events-none">
+                <div class="h-full bg-gradient-to-r from-blue-500 to-brand-cyan transition-all duration-75" id="progress-fill" style="width: 0%;"></div>
+              </div>
+              <input aria-label="Seek" class="absolute inset-0 w-full h-full opacity-100 cursor-pointer z-10" id="seek-slider" max="100" min="0" step="0.05" type="range" value="0"/>
+            </div>
+            <span class="text-xs sm:text-sm md:text-base font-medium tracking-tight text-gray-300 min-w-[55px] sm:min-w-[65px] font-mono" id="duration-time-text">00:00</span>
+          </div>
+
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+            <div class="min-w-0">
+              <h1 class="text-base sm:text-xl md:text-2xl font-normal tracking-wide text-white drop-shadow truncate" id="movie-title">Cargando…</h1>
+              <p class="text-[11px] sm:text-xs md:text-sm text-neutral-400 font-light truncate mt-0.5" id="movie-meta">—</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2.5 sm:gap-4 md:gap-5 text-xs sm:text-sm text-neutral-200 flex-shrink-0">
+              <button class="flex items-center space-x-1.5 hover:text-white transition focus:outline-none" id="btn-legend-exit" title="Ocultar controles (Esc)" type="button">
+                <span class="key-badge">EXIT</span><span>Vuelta</span>
+              </button>
+              <button class="flex items-center space-x-1.5 hover:text-white transition focus:outline-none" id="btn-legend-play" title="Reproducir/Pausar (Espacio)" type="button">
+                <span class="key-badge">OK</span><span id="legend-play-label">Reproducir/Pausar</span>
+              </button>
+              <button class="flex items-center space-x-1.5 hover:text-white transition focus:outline-none" id="btn-legend-rewind" title="-10s (←)" type="button">
+                <span class="key-badge">◀</span><span>Detrás</span>
+              </button>
+              <button class="flex items-center space-x-1.5 hover:text-white transition focus:outline-none" id="btn-legend-forward" title="+10s (→)" type="button">
+                <span class="key-badge">▶</span><span>Adelante</span>
+              </button>
+              <button class="flex items-center space-x-1.5 hover:text-white text-cyan-400 font-medium transition focus:outline-none" id="btn-legend-info" title="Info (I)" type="button">
+                <span class="key-badge bg-cyan-400 text-black">▲</span><span class="text-white">Info</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-center pb-2 pointer-events-auto">
+        <button aria-label="Opciones" class="text-neutral-400 hover:text-white focus:outline-none transition-all duration-300 hover:scale-125 p-2 rounded-full hover:bg-white/10" id="btn-toggle-options">
+          <svg class="w-7 h-7 transform transition-transform duration-300 ease-out" fill="none" id="toggle-chevron" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
-  <div id="scrubber-row">
-    <span id="time-cur">00:00</span>
-    <div id="scrubber-wrap">
-      <div id="scrubber-track"><div id="scrubber-fill"></div></div>
-      <input type="range" id="scrubber" min="0" max="100" value="0" step="0.1"/>
-    </div>
-    <span id="time-dur">00:00</span>
-  </div>
-</div>
 
-<button id="show-hud">▲ Mostrar controles</button>
+  <button aria-label="Mostrar controles" class="fixed bottom-3 left-1/2 -translate-x-1/2 z-30 opacity-0 pointer-events-none transition-all duration-300 p-2 text-white/70 hover:text-white bg-black/60 backdrop-blur rounded-full border border-white/15 shadow-xl hover:scale-110" id="btn-reveal-hud" title="Mostrar barra">
+    <svg class="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/>
+    </svg>
+  </button>
+
+  <div class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md opacity-0 pointer-events-none transition-opacity duration-300 flex items-center justify-center p-4" id="feedback-modal">
+    <div class="bg-zinc-950 border border-white/15 max-w-md w-full rounded-2xl p-6 shadow-2xl relative transform scale-95 transition-transform duration-300" id="feedback-card">
+      <button class="absolute top-4 right-4 text-neutral-400 hover:text-white p-2 rounded-lg bg-white/5 hover:bg-white/10 transition" id="btn-close-feedback">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+      </button>
+      <div class="flex items-center space-x-3 mb-4">
+        <div class="p-2.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-semibold text-white">Reportar Falla</h3>
+          <p class="text-xs text-neutral-400">¿Qué inconveniente estás experimentando?</p>
+        </div>
+      </div>
+      <form class="space-y-3" id="feedback-form">
+        <div class="space-y-2">
+          <label class="flex items-center p-2.5 rounded-lg bg-white/5 border border-white/10 cursor-pointer hover:border-cyan-400/50 transition">
+            <input class="text-cyan-500 focus:ring-cyan-400 bg-neutral-900 border-neutral-700" name="issue" type="radio" value="audio_sync"/>
+            <span class="ml-2.5 text-xs text-neutral-200">Audio desfasado o sin sonido</span>
+          </label>
+          <label class="flex items-center p-2.5 rounded-lg bg-white/5 border border-white/10 cursor-pointer hover:border-cyan-400/50 transition">
+            <input checked class="text-cyan-500 focus:ring-cyan-400 bg-neutral-900 border-neutral-700" name="issue" type="radio" value="stream_freeze"/>
+            <span class="ml-2.5 text-xs text-neutral-200">Video pausado o buffer continuo</span>
+          </label>
+          <label class="flex items-center p-2.5 rounded-lg bg-white/5 border border-white/10 cursor-pointer hover:border-cyan-400/50 transition">
+            <input class="text-cyan-500 focus:ring-cyan-400 bg-neutral-900 border-neutral-700" name="issue" type="radio" value="subtitle_issue"/>
+            <span class="ml-2.5 text-xs text-neutral-200">Problemas con subtítulos</span>
+          </label>
+        </div>
+        <div class="pt-2">
+          <textarea class="w-full text-xs bg-white/5 border border-white/10 rounded-lg p-2.5 text-white placeholder-neutral-500 focus:outline-none focus:border-cyan-400" placeholder="Detalle adicional (opcional)..." rows="2"></textarea>
+        </div>
+        <div class="pt-3 flex justify-end space-x-2">
+          <button class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition" id="btn-cancel-feedback" type="button">Cancelar</button>
+          <button class="px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-semibold transition" type="submit">Enviar Reporte</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md opacity-0 pointer-events-none transition-opacity duration-300 flex items-center justify-center p-4" id="info-modal">
+    <div class="bg-zinc-900/95 border border-white/15 max-w-2xl w-full rounded-2xl p-6 sm:p-8 shadow-2xl relative transform scale-95 transition-transform duration-300" id="info-modal-card">
+      <button class="absolute top-4 right-4 text-neutral-400 hover:text-white p-2 rounded-lg bg-white/5 hover:bg-white/10 transition" id="btn-close-modal">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+      </button>
+      <div class="flex flex-col sm:flex-row gap-6">
+        <img alt="Poster" class="w-32 h-48 sm:w-44 sm:h-64 object-cover rounded-lg shadow-md border border-white/10 flex-shrink-0 mx-auto bg-neutral-800" id="info-poster" src=""/>
+        <div class="flex-1 space-y-3">
+          <div class="flex items-center gap-2 flex-wrap" id="info-badges"></div>
+          <h2 class="text-2xl font-bold text-white tracking-wide" id="info-title">—</h2>
+          <p class="text-xs font-mono text-cyan-400" id="info-original">—</p>
+          <p class="text-neutral-300 text-sm leading-relaxed" id="info-overview">—</p>
+          <div class="pt-2 border-t border-white/10 grid grid-cols-2 gap-2 text-xs text-neutral-400" id="info-details"></div>
+        </div>
+      </div>
+      <div class="mt-6 pt-4 border-t border-white/10 flex justify-end gap-3">
+        <button class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition" id="btn-modal-close-action">Cerrar</button>
+        <button class="px-5 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-semibold text-sm transition flex items-center space-x-2" id="btn-modal-action-play">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span>Continuar Viendo</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</main>
 
 <script>
 /* ══════════════════════════════════════════════════════════════════════════
    CONFIGURACIÓN
    ══════════════════════════════════════════════════════════════════════════ */
-// URL de tu backend en Render (¡YA CONFIGURADA!)
 const API_BASE = 'https://mi-player-api.onrender.com';
-
-// Proxy opcional para streams HLS/MP4 con CORS.
-// Déjalo vacío '' si no tienes worker configurado — se usará la URL directa.
 const PROXY_BASE = '';
-/* ══════════════════════════════════════════════════════════════════════════ */
 
-const state = {
-  isPlaying:false, currentTime:0, duration:0,
-  isSeeking:false, currentLang:null, currentSrv:null, currentKind:null,
+const HOST_LABELS = {
+  vimeos: 'Vimeos', voe: 'VOE', streamwish: 'StreamWish', vidhide: 'VidHide',
+  filelions: 'FileLions', filemoon: 'FileMoon', doodstream: 'DoodStream',
+  fembed: 'Fembed', streamtape: 'StreamTape', mixdrop: 'MixDrop', okru: 'OkRu',
+  uqload: 'Uqload', vidspeed: 'VidSpeed', vidmoly: 'Vidmoly',
+  mp4upload: 'Mp4Upload', netu: 'Netu', fastream: 'Fastream',
+  unlimplay: 'UnLimPlay', pelispledia: 'Pelispledia', pelixplay: 'PelixPlay',
 };
-let embeds = {};
-let _extracted = {};
-let _currentFrame = null, _currentVideoEl = null, _currentHls = null;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ESTADO
+   ══════════════════════════════════════════════════════════════════════════ */
+const state = {
+  isPlaying: true,
+  currentTime: 0,
+  duration: 0,
+  isHudVisible: true,
+  isOptionsDrawerOpen: false,
+  isModalOpen: false,
+  isFeedbackOpen: false,
+  isSeeking: false,
+  idleTimer: null,
+  idleTimeoutDuration: 3800,
+  currentAudio: 'latino',
+  currentSubtitle: 'off',
+  currentAspect: '16-9',
+  currentServer: null,
+  servers: {},
+  serversFlat: [],
+  movieId: null,
+  movieType: 'movie',
+  meta: null,
+};
 
 const $ = id => document.getElementById(id);
-const els = {
-  stage:$('stage'), backdrop:$('backdrop'), chip:$('chip'),
-  btnServers:$('btn-servers'), panelServers:$('panel-servers'), serversList:$('servers-list'),
-  centerPlay:$('center-play'),
-  loading:$('loading'), loadingText:$('loading-text'), toast:$('toast'),
-  hud:$('hud'), showHud:$('show-hud'),
-  posterImg:$('poster-img'), title:$('title'), meta:$('meta'),
-  btnPlay:$('btn-play'), btnRew:$('btn-rew'), btnFwd:$('btn-fwd'),
-  timeCur:$('time-cur'), timeDur:$('time-dur'),
-  scrubber:$('scrubber'), scrubberFill:$('scrubber-fill'),
-  verBar:$('ver-bar'),
+const elements = {
+  iframe: $('unlimplay-iframe'),
+  hud: $('osd-hud'),
+  slider: $('seek-slider'),
+  progressFill: $('progress-fill'),
+  currentTimeText: $('current-time-text'),
+  durationTimeText: $('duration-time-text'),
+  optionsPanel: $('options-panel-container'),
+  btnToggleOptions: $('btn-toggle-options'),
+  btnRevealHud: $('btn-reveal-hud'),
+  toggleChevron: $('toggle-chevron'),
+  actionFlash: $('action-flash'),
+  actionFlashIcon: $('action-flash-icon'),
+  toastNotify: $('toast-notify'),
+  toastText: $('toast-text'),
+  infoModal: $('info-modal'),
+  infoModalCard: $('info-modal-card'),
+  btnCloseModal: $('btn-close-modal'),
+  btnModalCloseAction: $('btn-modal-close-action'),
+  btnModalPlay: $('btn-modal-action-play'),
+  posterThumb: $('poster-thumb'),
+  btnExit: $('btn-legend-exit'),
+  btnPlay: $('btn-legend-play'),
+  btnRewind: $('btn-legend-rewind'),
+  btnForward: $('btn-legend-forward'),
+  btnInfo: $('btn-legend-info'),
+  legendPlayLabel: $('legend-play-label'),
+  btnBarFeedback: $('btn-bar-feedback'),
+  badgeActiveAudio: $('badge-active-audio'),
+  badgeActiveSubtitle: $('badge-active-subtitle'),
+  badgeActiveServer: $('badge-active-server'),
+  serversList: $('servers-list'),
+  serversStatusBadge: $('servers-status-badge'),
+  feedbackModal: $('feedback-modal'),
+  feedbackCard: $('feedback-card'),
+  btnCloseFeedback: $('btn-close-feedback'),
+  btnCancelFeedback: $('btn-cancel-feedback'),
+  feedbackForm: $('feedback-form'),
+  bottomHoverDetector: $('bottom-hover-detector'),
+  posterImg: $('poster-img'),
+  movieTitle: $('movie-title'),
+  movieMeta: $('movie-meta'),
+  infoPoster: $('info-poster'),
+  infoTitle: $('info-title'),
+  infoOriginal: $('info-original'),
+  infoOverview: $('info-overview'),
+  infoBadges: $('info-badges'),
+  infoDetails: $('info-details'),
 };
 
-const LANG_ORDER  = ['latino','español','subtitulado','castellano'];
-const LANG_LABELS = { latino:'Latino', español:'Español', castellano:'Castellano', subtitulado:'Subtitulado' };
-const LANG_KEY    = 'ulp.version';
-
-const PROVIDER_DISPLAY = {
-  vimeos:'Vimeos', voe:'VOE', streamwish:'StreamWish', vidhide:'VidHide',
-  filelions:'FileLions', filemoon:'FileMoon', doodstream:'DoodStream',
-  fembed:'Fembed', streamtape:'StreamTape', mixdrop:'MixDrop', okru:'OkRu',
-  uqload:'Uqload', vidspeed:'VidSpeed', vidmoly:'Vidmoly',
-  mp4upload:'Mp4Upload', netu:'Netu', fastream:'Fastream',
-  unlimplay:'UnlimPlay',
+const ICONS = {
+  play: '<polygon points="5 3 19 12 5 21 5 3"/>',
+  pause: '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
+  forward: '<polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/>',
+  rewind: '<polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/>',
+  settings: '<circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>',
+  check: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" fill="none" stroke="currentColor"/>',
 };
 
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
-function normKey(n){
-  let b = (n||'').toLowerCase().replace(/[\s_-]+\d+$/,'');
-  if (['hglink','flaswish','wishfast','awish'].includes(b)) return 'streamwish';
-  if (['filelions','minochinos','vihide','vidhidepro','callistanise','hgcloud','earnvids','masukesting','morencius'].includes(b)) return 'vidhide';
-  if (['dood','doodcx','doodpm','doodto','doodla','d0000d'].includes(b)) return 'doodstream';
-  return b;
+/* ══════════════════════════════════════════════════════════════════════════
+   UTILIDADES
+   ══════════════════════════════════════════════════════════════════════════ */
+function getQueryParam(name) { return new URLSearchParams(location.search).get(name); }
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function detectHost(url) {
+  const u = (url || '').toLowerCase();
+  if (/vimeos/.test(u)) return 'Vimeos';
+  if (/voe\.sx|voe\.de/.test(u)) return 'VOE';
+  if (/streamwish|hglink|flaswish/.test(u)) return 'StreamWish';
+  if (/vidhide|filelions|minochinos/.test(u)) return 'FileLions';
+  if (/filemoon/.test(u)) return 'FileMoon';
+  if (/doodstream/.test(u)) return 'DoodStream';
+  if (/mixdrop/.test(u)) return 'MixDrop';
+  if (/okru/.test(u)) return 'OkRu';
+  if (/vidmoly/.test(u)) return 'Vidmoly';
+  if (/streamtape/.test(u)) return 'StreamTape';
+  return 'Servidor';
 }
-function trueBase(n){
-  let b=n||'',p;
-  do{p=b;b=b.replace(/[\s_-]+\d+$/,'').replace(/(?<=[a-zA-Z]{3})\d+$/,'');}while(b!==p);
-  return b;
+function formatTime(totalSeconds) {
+  if (isNaN(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  const p = n => String(n).padStart(2, '0');
+  return h > 0 ? `${p(h)}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
 }
-const HLS_RE = [/\.m3u8(\?|$)/i, /master\.txt(\?|$)/i];
-const MP4_RE = [/\.mp4(\?|$)/i, /\.webm(\?|$)/i];
-function detectByUrl(url){
-  if (!url) return null;
-  for (const re of HLS_RE) if (re.test(url)) return 'hls';
-  for (const re of MP4_RE) if (re.test(url)) return 'mp4';
-  return null;
-}
-
-// Construye URL para el reproductor — usa proxy si está configurado
-function streamUrl(url, referer){
-  if (!url) return url;
-  if (!PROXY_BASE) {
-    // Sin proxy: usar URL directa (puede fallar por CORS en algunos hosts)
-    return url;
-  }
-  const ref = referer || url;
-  return PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(ref);
-}
-
-function showToast(m, d){
-  d = d || 3000;
-  els.toast.textContent = m;
-  els.toast.classList.add('on');
+function showToast(message) {
+  if (!elements.toastNotify) return;
+  elements.toastText.textContent = message;
+  elements.toastNotify.classList.remove('opacity-0', '-translate-y-3');
+  elements.toastNotify.classList.add('opacity-100', 'translate-y-0');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => els.toast.classList.remove('on'), d);
+  showToast._t = setTimeout(() => {
+    elements.toastNotify.classList.remove('opacity-100', 'translate-y-0');
+    elements.toastNotify.classList.add('opacity-0', '-translate-y-3');
+  }, 3000);
 }
-function showLoading(t){ els.loadingText.textContent = t || 'Cargando…'; els.loading.classList.add('on'); }
-function hideLoading(){ els.loading.classList.remove('on'); }
-function fmt(s){
-  if (!isFinite(s) || s<0) s=0;
-  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=Math.floor(s%60);
-  const p=n=>String(n).padStart(2,'0');
-  return h>0?`${p(h)}:${p(m)}:${p(x)}`:`${p(m)}:${p(x)}`;
-}
-function setChip(k){
-  if (!k){ els.chip.classList.add('hidden'); return; }
-  els.chip.className = k;
-  els.chip.classList.remove('hidden');
-  els.chip.textContent = k==='hls' ? '● HLS nativo' : k==='mp4' ? '● MP4 nativo' : '● iframe externo';
-}
-function showHUD(){ els.hud.classList.remove('hidden'); els.showHud.classList.remove('on'); }
-function hideHUD(){ els.hud.classList.add('hidden'); els.showHud.classList.add('on'); }
-
-function rememberedLang(){
-  try {
-    const s = sessionStorage.getItem(LANG_KEY);
-    return LANG_ORDER.includes(s) ? s : '';
-  } catch(e){ return ''; }
-}
-function rememberLang(lang){
-  try { sessionStorage.setItem(LANG_KEY, lang); } catch(e){}
+function triggerActionFlash(iconMarkup) {
+  elements.actionFlashIcon.innerHTML = iconMarkup;
+  elements.actionFlash.classList.remove('opacity-0', 'scale-75');
+  elements.actionFlash.classList.add('opacity-100', 'scale-100');
+  clearTimeout(triggerActionFlash._t);
+  triggerActionFlash._t = setTimeout(() => {
+    elements.actionFlash.classList.remove('opacity-100', 'scale-100');
+    elements.actionFlash.classList.add('opacity-0', 'scale-75');
+  }, 550);
 }
 
-function renderVersions(){
-  if (!els.verBar) return;
-  const present = LANG_ORDER.filter(l => embeds[l] && Object.keys(embeds[l]).length > 0);
+/* ══════════════════════════════════════════════════════════════════════════
+   SERVIDORES
+   ══════════════════════════════════════════════════════════════════════════ */
+function buildServersFlat(servers) {
+  const flat = [];
+  let n = 1;
+  for (const [lang, srvMap] of Object.entries(servers || {})) {
+    if (!srvMap || typeof srvMap !== 'object') continue;
+    for (const [hostKey, url] of Object.entries(srvMap)) {
+      if (!url || typeof url !== 'string') continue;
+      flat.push({
+        num: n++,
+        host: hostKey,
+        hostPretty: HOST_LABELS[hostKey.toLowerCase()] || detectHost(url),
+        lang: lang,
+        url: url,
+      });
+    }
+  }
+  return flat;
+}
 
-  const wanted = rememberedLang();
-  state.currentLang = present.includes(wanted) ? wanted : present[0];
+function renderServers() {
+  const list = elements.serversList;
+  list.innerHTML = '';
 
-  if (present.length < 2){
-    els.verBar.classList.remove('on');
-    els.verBar.innerHTML = '';
+  if (!state.serversFlat.length) {
+    list.innerHTML = `<span class="text-[11px] text-neutral-400 italic">No hay servidores disponibles para este título.</span>`;
+    elements.serversStatusBadge.textContent = 'SIN SERVIDORES';
+    elements.serversStatusBadge.className = 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30';
     return;
   }
 
-  els.verBar.innerHTML = '';
-  present.forEach(lang => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'ver-btn' + (lang === state.currentLang ? ' active' : '');
-    b.dataset.lang = lang;
-    b.textContent = LANG_LABELS[lang] || cap(lang);
-    els.verBar.appendChild(b);
-  });
-  els.verBar.classList.add('on');
-}
+  elements.serversStatusBadge.textContent = 'ONLINE';
+  elements.serversStatusBadge.className = 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
 
-async function switchLang(lang){
-  if (!embeds[lang] || lang === state.currentLang) return;
-  state.currentLang = lang;
-  rememberLang(lang);
-
-  els.verBar.querySelectorAll('.ver-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.lang === lang);
-  });
-
-  teardown();
-  _extracted = {};
-  state.currentSrv = null;
-  state.currentKind = null;
-  setChip(null);
-  els.backdrop.classList.remove('hidden');
-
-  showLoading('Cambiando a ' + (LANG_LABELS[lang] || lang) + '…');
-  const srvs = embeds[lang] || {};
-  await extractAllServers(srvs);
-  renderServersList();
-  autoLoadBest();
-}
-
-async function extractFromBackend(embedUrl){
-  try {
-    const r = await fetch(API_BASE + '/api/extract?url=' + encodeURIComponent(embedUrl));
-    if (!r.ok) return null;
-    const data = await r.json();
-    if (data.error || !data.stream) return null;
-    return { stream:data.stream, kind:data.kind || 'hls', referer:data.referer };
-  } catch(e){ return null; }
-}
-
-async function extractAllServers(srvs){
-  const entries = Object.entries(srvs);
-  const extracted = {};
-  for (let i = 0; i < entries.length; i++){
-    const name = entries[i][0];
-    const url = entries[i][1];
-    const byUrl = detectByUrl(url);
-    if (byUrl){
-      extracted[name] = { url, stream:url, kind:byUrl, referer:url };
-      continue;
-    }
-    showLoading('Extrayendo ' + (i+1) + '/' + entries.length + ': ' + cap(name) + '…');
-    const res = await extractFromBackend(url);
-    if (res){
-      extracted[name] = { url, stream:res.stream, kind:res.kind, referer:res.referer };
-    } else {
-      extracted[name] = { url, stream:null, kind:'iframe', referer:url };
-    }
-  }
-  hideLoading();
-  _extracted = extracted;
-}
-
-function teardown(){
-  if (_currentHls){ try{ _currentHls.destroy(); }catch(_){} _currentHls = null; }
-  if (_currentFrame){ try{ _currentFrame.remove(); }catch(_){} _currentFrame = null; }
-  _currentVideoEl = null;
-}
-function attachVideo(vid){
-  vid.addEventListener('loadedmetadata', () => { state.duration = vid.duration||0; updateScrubber(); hideLoading(); });
-  vid.addEventListener('timeupdate', () => { state.currentTime = vid.currentTime||0; if (!state.isSeeking) updateScrubber(); });
-  vid.addEventListener('play',  () => { state.isPlaying=true; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Pausar'; });
-  vid.addEventListener('pause', () => { state.isPlaying=false; els.btnPlay.innerHTML='<span class="key-badge">OK</span> Reproducir'; });
-}
-
-function mountHls(url, referer){
-  state.currentKind = 'hls';
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
-  const vid = document.createElement('video');
-  vid.playsInline=true; vid.preload='metadata'; vid.controls=false;
-  vid.crossOrigin = 'anonymous';
-  wrap.appendChild(vid);
-  els.stage.appendChild(wrap);
-  _currentFrame = wrap; _currentVideoEl = vid;
-  attachVideo(vid);
-
-  const finalUrl = streamUrl(url, referer);
-  console.log('[HLS] URL:', finalUrl.slice(0, 120));
-
-  if (typeof Hls !== 'undefined' && Hls.isSupported()){
-    const hls = new Hls({ maxBufferLength:30, startLevel:-1, enableWorker:true });
-    _currentHls = hls;
-    hls.loadSource(finalUrl);
-    hls.attachMedia(vid);
-
-    const loadTimeout = setTimeout(() => {
-      showToast('El stream tarda. Probando otro…');
-      hideLoading();
-      tryNextServer();
-    }, 25000);
-
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      clearTimeout(loadTimeout);
-      hideLoading();
-      vid.play().catch(()=>{});
-    });
-    hls.on(Hls.Events.ERROR, (_, d) => {
-      if (d.fatal){
-        clearTimeout(loadTimeout);
-        showToast('Error, probando siguiente…');
-        hideLoading();
-        tryNextServer();
-      }
-    });
-  } else if (vid.canPlayType('application/vnd.apple.mpegurl')){
-    vid.src = finalUrl; vid.load();
-    vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
-    vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
-  }
-}
-
-function mountMp4(url, referer){
-  state.currentKind = 'mp4';
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:absolute;inset:0;background:#000';
-  const vid = document.createElement('video');
-  vid.playsInline=true; vid.preload='metadata'; vid.controls=false;
-  vid.crossOrigin = 'anonymous';
-  wrap.appendChild(vid);
-  els.stage.appendChild(wrap);
-  _currentFrame = wrap; _currentVideoEl = vid;
-  attachVideo(vid);
-
-  const finalUrl = streamUrl(url, referer);
-  vid.src = finalUrl; vid.load();
-  vid.addEventListener('canplay', () => { hideLoading(); vid.play().catch(()=>{}); }, { once:true });
-  vid.addEventListener('error', () => { hideLoading(); tryNextServer(); });
-}
-
-function mountIframe(url){
-  state.currentKind = 'iframe';
-  const iframe = document.createElement('iframe');
-  iframe.className = 'ulp-iframe';
-  iframe.allow = 'autoplay *; fullscreen *; encrypted-media *; picture-in-picture *';
-  iframe.allowFullscreen = true;
-  iframe.setAttribute('allowfullscreen','');
-  iframe.setAttribute('referrerpolicy','no-referrer');
-  iframe.src = url;
-  iframe.addEventListener('load', () => hideLoading());
-  els.stage.appendChild(iframe);
-  _currentFrame = iframe; _currentVideoEl = null;
-  state.duration = 0; state.currentTime = 0;
-  updateScrubber();
-}
-
-function loadServer(name){
-  const srv = _extracted[name];
-  if (!srv) return;
-  state.currentSrv = name;
-  const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
-  const label = srv.kind === 'hls' ? 'HLS' : srv.kind === 'mp4' ? 'MP4' : 'iframe';
-  showLoading('Cargando ' + disp + ' (' + label + ')…');
-  setChip(srv.kind);
-  teardown();
-  els.centerPlay.classList.add('hidden');
-  els.backdrop.classList.add('hidden');
-
-  if (srv.stream && srv.kind === 'hls') mountHls(srv.stream, srv.referer);
-  else if (srv.stream && srv.kind === 'mp4') mountMp4(srv.stream, srv.referer);
-  else mountIframe(srv.url);
-  renderServersList();
-}
-
-function tryNextServer(){
-  const names = Object.keys(_extracted);
-  if (names.length < 2) return;
-  const idx = names.indexOf(state.currentSrv);
-  const next = names[idx + 1] || names[0];
-  if (next && next !== state.currentSrv) {
-    console.log('[Player] Fallback → ' + next);
-    setTimeout(() => loadServer(next), 800);
-  }
-}
-
-function autoLoadBest(){
-  const names = Object.keys(_extracted);
-  if (!names.length) return;
-  const prio = { hls:0, mp4:1, iframe:2 };
-  names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
-  loadServer(names[0]);
-}
-
-function renderServersList(){
-  els.serversList.innerHTML = '';
-
-  if (state.currentLang){
-    const head = document.createElement('div');
-    head.style.cssText = 'font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px 2px;font-weight:700';
-    head.textContent = 'Idioma: ' + (LANG_LABELS[state.currentLang] || cap(state.currentLang));
-    els.serversList.appendChild(head);
-  }
-
-  const names = Object.keys(_extracted);
-  const prio = { hls:0, mp4:1, iframe:2 };
-  names.sort((a,b) => (prio[_extracted[a].kind]||3) - (prio[_extracted[b].kind]||3));
-  names.forEach(name => {
-    const kind = _extracted[name].kind;
-    const disp = PROVIDER_DISPLAY[normKey(trueBase(name))] || cap(name);
+  state.serversFlat.forEach((srv) => {
+    const isActive = srv.num === state.currentServer;
     const btn = document.createElement('button');
-    btn.className = 'srv-btn' + (name === state.currentSrv ? ' active' : '');
-    btn.innerHTML = '<span>' + esc(disp) + '</span><span class="srv-kind kind-' + kind + '">' + kind.toUpperCase() + '</span>';
-    btn.onclick = () => { loadServer(name); els.panelServers.classList.remove('on'); };
-    els.serversList.appendChild(btn);
+    btn.type = 'button';
+    btn.className = `tv-btn-normal ${isActive ? 'tv-btn-active' : ''} px-4 py-2 text-xs sm:text-sm font-medium rounded-lg flex items-center justify-center space-x-2 border transition shadow-sm w-full sm:w-auto min-w-[200px]`;
+    btn.dataset.serverNum = srv.num;
+    btn.innerHTML = `
+      <svg class="w-3.5 h-3.5 fill-current text-white check-icon ${isActive ? '' : 'hidden'}" viewBox="0 0 20 20">
+        <path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/>
+      </svg>
+      <span class="font-medium">⚡ Server ${srv.num}</span>
+    `;
+    btn.addEventListener('click', () => selectServer(srv.num));
+    list.appendChild(btn);
   });
 }
 
-function updateScrubber(){
-  if (state.duration <= 0){
-    els.scrubber.value = 0; els.scrubberFill.style.width = '0%';
-    els.timeCur.textContent = fmt(state.currentTime);
-    els.timeDur.textContent = state.currentKind === 'iframe' ? '—' : '00:00';
-    return;
-  }
-  const pct = Math.min(Math.max((state.currentTime/state.duration)*100, 0), 100);
-  if (!state.isSeeking) els.scrubber.value = pct;
-  els.scrubberFill.style.width = pct + '%';
-  els.timeCur.textContent = fmt(state.currentTime);
-  els.timeDur.textContent = fmt(state.duration);
-}
-function togglePlay(){
-  if (state.currentKind === 'iframe'){ showToast('Usá los controles del iframe'); return; }
-  if (_currentVideoEl){
-    if (_currentVideoEl.paused) _currentVideoEl.play().catch(()=>{});
-    else _currentVideoEl.pause();
-  }
-}
-function rewind10(){
-  if (_currentVideoEl) _currentVideoEl.currentTime = Math.max(0, _currentVideoEl.currentTime - 10);
-  else showToast('Solo en HLS/MP4');
-}
-function forward10(){
-  if (_currentVideoEl) _currentVideoEl.currentTime = Math.min(_currentVideoEl.duration||Infinity, _currentVideoEl.currentTime + 10);
-  else showToast('Solo en HLS/MP4');
-}
+function selectServer(num) {
+  const srv = state.serversFlat.find(s => s.num === num);
+  if (!srv) return;
+  state.currentServer = num;
 
-// ✅ CORREGIDO: sintaxis clara
-els.btnPlay.addEventListener('click', togglePlay);
-els.btnRew.addEventListener('click', rewind10);
-els.btnFwd.addEventListener('click', forward10);
-
-els.centerPlay.onclick = () => {
-  if (!state.currentSrv) autoLoadBest();
-  else togglePlay();
-};
-els.btnServers.onclick = (e) => { e.stopPropagation(); els.panelServers.classList.toggle('on'); };
-els.showHud.onclick = showHUD;
-
-els.scrubber.addEventListener('input', e => {
-  if (state.currentKind === 'iframe') return;
-  const pct = parseFloat(e.target.value);
-  state.currentTime = (pct/100) * state.duration;
-  els.scrubberFill.style.width = pct + '%';
-  els.timeCur.textContent = fmt(state.currentTime);
-});
-els.scrubber.addEventListener('change', e => {
-  if (state.currentKind === 'iframe') return;
-  state.isSeeking = false;
-  const sec = (parseFloat(e.target.value)/100) * state.duration;
-  if (_currentVideoEl) _currentVideoEl.currentTime = sec;
-  state.currentTime = sec;
-});
-els.scrubber.addEventListener('pointerdown', () => state.isSeeking = true);
-els.scrubber.addEventListener('pointerup', () => state.isSeeking = false);
-
-if (els.verBar){
-  els.verBar.addEventListener('click', (e) => {
-    const b = e.target.closest('.ver-btn');
-    if (!b) return;
-    e.preventDefault();
-    switchLang(b.dataset.lang);
+  elements.serversList.querySelectorAll('button[data-server-num]').forEach(b => {
+    const isNowActive = parseInt(b.dataset.serverNum, 10) === num;
+    b.classList.toggle('tv-btn-active', isNowActive);
+    const check = b.querySelector('.check-icon');
+    if (check) check.classList.toggle('hidden', !isNowActive);
   });
+
+  elements.badgeActiveServer.textContent = `Server ${num}`;
+
+  elements.iframe.src = srv.url;
+  showToast(`Cargando Server ${num}`);
+  triggerActionFlash(ICONS.check);
+
+  state.currentTime = 0;
+  state.duration = 0;
+  updateScrubberUI();
 }
 
-let _idleTimer = null;
-function resetIdle(){
-  showHUD();
-  clearTimeout(_idleTimer);
-  _idleTimer = setTimeout(() => { if (state.isPlaying) hideHUD(); }, 4000);
-}
-window.addEventListener('mousemove', resetIdle);
-window.addEventListener('touchstart', resetIdle);
-document.addEventListener('click', e => {
-  if (!els.panelServers.contains(e.target) && e.target !== els.btnServers) {
-    els.panelServers.classList.remove('on');
-  }
-});
-
-function getQueryParam(name){ return new URLSearchParams(location.search).get(name); }
-
-async function init(){
-  const id = getQueryParam('id') || '315635';
-  const type = getQueryParam('type') || 'movie';
-  showLoading('Buscando servidores…');
+/* ══════════════════════════════════════════════════════════════════════════
+   CARGA DESDE BACKEND
+   ══════════════════════════════════════════════════════════════════════════ */
+async function loadMovie(id, type) {
+  state.movieId = id;
+  state.movieType = type;
 
   try {
-    const r = await fetch(API_BASE + '/api/servers?id=' + encodeURIComponent(id) + '&type=' + encodeURIComponent(type));
+    const r = await fetch(`${API_BASE}/api/servers?id=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
 
-    if (!data.servers || !Object.keys(data.servers).length){
+    if (data.meta) {
+      state.meta = data.meta;
+
+      if (data.meta.title) elements.movieTitle.textContent = data.meta.title;
+
+      const parts = [];
+      if (data.meta.year) parts.push(data.meta.year);
+      if (data.meta.genres && data.meta.genres.length) parts.push(data.meta.genres.slice(0, 2).join(' / '));
+      if (data.meta.runtime) {
+        const h = Math.floor(data.meta.runtime / 60);
+        const m = data.meta.runtime % 60;
+        parts.push(h > 0 ? `${h}h ${m}m` : `${m}m`);
+      }
+      if (data.meta.voteAverage) parts.push('⭐ ' + data.meta.voteAverage.toFixed(1));
+      elements.movieMeta.textContent = parts.join(' • ') || '—';
+
+      if (data.meta.poster) elements.posterImg.src = data.meta.poster;
+      if (data.meta.title) document.title = `${data.meta.title} — Smart TV Player`;
+
+      elements.infoTitle.textContent = data.meta.title || '—';
+      elements.infoPoster.src = data.meta.poster || '';
+      elements.infoOverview.textContent = data.meta.overview || '—';
+      elements.infoOriginal.textContent = `${cap(type)} • TMDB ID: ${data.meta.tmdbId || id}`;
+
+      const badges = [];
+      if (data.meta.year) badges.push(`<span class="text-xs text-neutral-400">${data.meta.year}</span>`);
+      if (data.meta.runtime) {
+        const h = Math.floor(data.meta.runtime / 60);
+        const m = data.meta.runtime % 60;
+        badges.push(`<span class="text-xs text-neutral-400">• ${h > 0 ? h + 'h ' : ''}${m}m</span>`);
+      }
+      if (data.meta.voteAverage) badges.push(`<span class="px-2 py-0.5 text-xs font-semibold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">TMDB ${data.meta.voteAverage.toFixed(1)}</span>`);
+      badges.push('<span class="px-1.5 py-0.2 text-[10px] uppercase font-bold border border-cyan-400/40 text-cyan-300 rounded">Full HD</span>');
+      elements.infoBadges.innerHTML = badges.join('');
+
+      const details = [];
+      if (data.meta.genres && data.meta.genres.length) details.push(`<div><strong class="text-neutral-200">Género:</strong> ${esc(data.meta.genres.join(', '))}</div>`);
+      elements.infoDetails.innerHTML = details.join('') || '';
+    }
+
+    state.servers = data.servers || {};
+    state.serversFlat = buildServersFlat(state.servers);
+
+    renderServers();
+
+    if (state.serversFlat.length) {
+      selectServer(state.serversFlat[0].num);
+    } else {
       showToast('Sin servidores disponibles');
-      hideLoading();
+    }
+
+  } catch (e) {
+    console.error('[loadMovie] Error:', e);
+    showToast('Error al cargar: ' + e.message);
+    elements.serversStatusBadge.textContent = 'ERROR';
+    elements.serversStatusBadge.className = 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30';
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HUD
+   ══════════════════════════════════════════════════════════════════════════ */
+function showHUD() {
+  state.isHudVisible = true;
+  elements.hud.classList.remove('hud-hidden');
+  elements.btnRevealHud.classList.add('opacity-0', 'pointer-events-none');
+}
+function hideHUD() {
+  if (state.isModalOpen || state.isFeedbackOpen || state.isOptionsDrawerOpen) return;
+  state.isHudVisible = false;
+  elements.hud.classList.add('hud-hidden');
+  elements.btnRevealHud.classList.remove('opacity-0', 'pointer-events-none');
+}
+function resetIdleTimer() {
+  if (!state.isHudVisible) showHUD();
+  clearTimeout(state.idleTimer);
+  state.idleTimer = setTimeout(() => {
+    if (!state.isModalOpen && !state.isFeedbackOpen && !state.isOptionsDrawerOpen) hideHUD();
+  }, state.idleTimeoutDuration);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CONTROLES
+   ══════════════════════════════════════════════════════════════════════════ */
+function sendPlayerCommand(command, args = []) {
+  if (!elements.iframe || !elements.iframe.contentWindow) return;
+  try { elements.iframe.contentWindow.postMessage({ type: 'unlimplay:command', command, args }, '*'); } catch (e) {}
+  try { elements.iframe.contentWindow.postMessage({ command, action: command, value: args[0], args }, '*'); } catch (e) {}
+}
+function updateScrubberUI() {
+  if (state.duration <= 0) {
+    elements.slider.value = 0;
+    elements.progressFill.style.width = '0%';
+    elements.currentTimeText.textContent = formatTime(state.currentTime);
+    elements.durationTimeText.textContent = '00:00';
+    return;
+  }
+  const percentage = (state.currentTime / state.duration) * 100;
+  const clampedPct = Math.min(Math.max(percentage, 0), 100);
+  if (!state.isSeeking) elements.slider.value = clampedPct;
+  elements.progressFill.style.width = `${clampedPct}%`;
+  elements.currentTimeText.textContent = formatTime(state.currentTime);
+  elements.durationTimeText.textContent = formatTime(state.duration);
+}
+function togglePlayPause() {
+  if (state.isPlaying) {
+    sendPlayerCommand('pause');
+    state.isPlaying = false;
+    elements.legendPlayLabel.textContent = 'Reproducir';
+    triggerActionFlash(ICONS.pause);
+  } else {
+    sendPlayerCommand('play');
+    state.isPlaying = true;
+    elements.legendPlayLabel.textContent = 'Pausar';
+    triggerActionFlash(ICONS.play);
+  }
+  showHUD();
+  resetIdleTimer();
+}
+function rewind10() {
+  state.currentTime = Math.max(0, state.currentTime - 10);
+  sendPlayerCommand('seek', [state.currentTime]);
+  updateScrubberUI();
+  triggerActionFlash(ICONS.rewind);
+  showHUD();
+  resetIdleTimer();
+}
+function forward10() {
+  state.currentTime = Math.min(state.duration, state.currentTime + 10);
+  sendPlayerCommand('seek', [state.currentTime]);
+  updateScrubberUI();
+  triggerActionFlash(ICONS.forward);
+  showHUD();
+  resetIdleTimer();
+}
+function toggleOptionsDrawer(force) {
+  const shouldOpen = typeof force === 'boolean' ? force : !state.isOptionsDrawerOpen;
+  state.isOptionsDrawerOpen = shouldOpen;
+  if (shouldOpen) {
+    elements.optionsPanel.classList.remove('options-drawer-collapsed');
+    elements.optionsPanel.classList.add('options-drawer-expanded');
+    elements.toggleChevron.classList.add('rotate-180', 'text-brand-cyan');
+    clearTimeout(state.idleTimer);
+  } else {
+    elements.optionsPanel.classList.remove('options-drawer-expanded');
+    elements.optionsPanel.classList.add('options-drawer-collapsed');
+    elements.toggleChevron.classList.remove('rotate-180', 'text-brand-cyan');
+    resetIdleTimer();
+  }
+}
+function toggleInfoModal(open) {
+  state.isModalOpen = typeof open === 'boolean' ? open : !state.isModalOpen;
+  if (state.isModalOpen) {
+    elements.infoModal.classList.remove('opacity-0', 'pointer-events-none');
+    elements.infoModalCard.classList.remove('scale-95');
+    elements.infoModalCard.classList.add('scale-100');
+    clearTimeout(state.idleTimer);
+  } else {
+    elements.infoModal.classList.add('opacity-0', 'pointer-events-none');
+    elements.infoModalCard.classList.add('scale-95');
+    elements.infoModalCard.classList.remove('scale-100');
+    resetIdleTimer();
+  }
+}
+function toggleFeedbackModal(open) {
+  state.isFeedbackOpen = typeof open === 'boolean' ? open : !state.isFeedbackOpen;
+  if (state.isFeedbackOpen) {
+    elements.feedbackModal.classList.remove('opacity-0', 'pointer-events-none');
+    elements.feedbackCard.classList.remove('scale-95');
+    elements.feedbackCard.classList.add('scale-100');
+  } else {
+    elements.feedbackModal.classList.add('opacity-0', 'pointer-events-none');
+    elements.feedbackCard.classList.add('scale-95');
+    elements.feedbackCard.classList.remove('scale-100');
+  }
+}
+function applyAspectRatio(mode) {
+  state.currentAspect = mode;
+  const iframe = elements.iframe;
+  iframe.classList.remove('aspect-mode-16-9', 'aspect-mode-stretch', 'aspect-mode-4-3');
+  if (mode === 'stretch') iframe.classList.add('aspect-mode-stretch');
+  else if (mode === '4-3') iframe.classList.add('aspect-mode-4-3');
+  else iframe.classList.add('aspect-mode-16-9');
+  showToast(`Formato: ${mode.toUpperCase()}`);
+  triggerActionFlash(ICONS.settings);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EVENTOS: FORMATO / AUDIO / SUBTÍTULOS
+   ══════════════════════════════════════════════════════════════════════════ */
+document.querySelectorAll('#group-formato-pantalla button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#group-formato-pantalla button').forEach(b => {
+      b.classList.remove('tv-btn-active');
+      const c = b.querySelector('.check-icon');
+      if (c) c.classList.add('hidden');
+    });
+    btn.classList.add('tv-btn-active');
+    const check = btn.querySelector('.check-icon');
+    if (check) check.classList.remove('hidden');
+    applyAspectRatio(btn.dataset.aspect);
+  });
+});
+
+document.querySelectorAll('#group-audio-options button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#group-audio-options button').forEach(b => {
+      b.classList.remove('tv-btn-active');
+      const c = b.querySelector('.check-icon');
+      if (c) c.classList.add('hidden');
+    });
+    btn.classList.add('tv-btn-active');
+    const check = btn.querySelector('.check-icon');
+    if (check) check.classList.remove('hidden');
+    const lang = btn.dataset.audio;
+    state.currentAudio = lang;
+
+    const filtered = state.serversFlat.filter(s => s.lang === lang);
+    if (filtered.length) {
+      state.serversFlat = buildServersFlat({ [lang]: state.servers[lang] });
+      state.serversFlat.forEach((s, i) => s.num = i + 1);
+      renderServers();
+      selectServer(1);
+    } else {
+      showToast(`No hay servidores en ${lang}`);
       return;
     }
 
-    if (data.meta){
-      if (data.meta.title) els.title.textContent = data.meta.title;
-      const parts = [];
-      if (data.meta.year) parts.push(data.meta.year);
-      if (data.meta.genres && data.meta.genres.length) parts.push(data.meta.genres.slice(0,2).join(' / '));
-      if (data.meta.runtime){
-        const h = Math.floor(data.meta.runtime/60), m = data.meta.runtime%60;
-        parts.push(h>0?h+'h '+m+'m':m+'m');
-      }
-      if (data.meta.voteAverage) parts.push('⭐ ' + data.meta.voteAverage);
-      els.meta.textContent = parts.join(' • ') || 'Sin información';
-      if (data.meta.backdrop) els.backdrop.style.backgroundImage = 'url(' + data.meta.backdrop + ')';
-      if (data.meta.poster) els.posterImg.src = data.meta.poster;
-      if (data.meta.title) document.title = data.meta.title + ' — UnLim Play';
+    if (lang === 'latino') {
+      elements.badgeActiveAudio.textContent = '🇲🇽 Español Latino';
+      showToast('Audio: Español Latino');
+    } else if (lang === 'castellano') {
+      elements.badgeActiveAudio.textContent = '🇪🇸 Español Castellano';
+      showToast('Audio: Castellano');
+    } else if (lang === 'subtitulado') {
+      elements.badgeActiveAudio.textContent = '📝 Subtitulado';
+      showToast('Audio: Subtitulado');
     }
+  });
+});
 
-    embeds = data.servers;
+document.querySelectorAll('#group-subtitle-options button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#group-subtitle-options button').forEach(b => {
+      b.classList.remove('tv-btn-active');
+      const c = b.querySelector('.check-icon');
+      if (c) c.classList.add('hidden');
+    });
+    btn.classList.add('tv-btn-active');
+    const check = btn.querySelector('.check-icon');
+    if (check) check.classList.remove('hidden');
+    const sub = btn.dataset.sub;
+    state.currentSubtitle = sub;
+    elements.badgeActiveSubtitle.textContent = sub === 'off' ? 'DESACTIVADOS' : sub.toUpperCase();
+    sendPlayerCommand('setSubtitle', [sub]);
+    showToast(sub === 'off' ? 'Subtítulos desactivados' : `Subtítulos: ${sub.toUpperCase()}`);
+  });
+});
 
-    renderVersions();
+/* ══════════════════════════════════════════════════════════════════════════
+   EVENTOS: BOTONES
+   ══════════════════════════════════════════════════════════════════════════ */
+elements.btnToggleOptions.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleOptionsDrawer();
+});
+elements.btnInfo.addEventListener('click', () => toggleInfoModal(true));
+elements.posterThumb.addEventListener('click', () => toggleInfoModal(true));
+elements.btnCloseModal.addEventListener('click', () => toggleInfoModal(false));
+elements.btnModalCloseAction.addEventListener('click', () => toggleInfoModal(false));
+elements.btnModalPlay.addEventListener('click', () => toggleInfoModal(false));
+elements.btnBarFeedback.addEventListener('click', () => toggleFeedbackModal(true));
+elements.btnCloseFeedback.addEventListener('click', () => toggleFeedbackModal(false));
+elements.btnCancelFeedback.addEventListener('click', () => toggleFeedbackModal(false));
+elements.feedbackForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  toggleFeedbackModal(false);
+  showToast('Reporte enviado');
+  triggerActionFlash(ICONS.check);
+});
+elements.btnExit.addEventListener('click', () => {
+  if (state.isFeedbackOpen) toggleFeedbackModal(false);
+  else if (state.isOptionsDrawerOpen) toggleOptionsDrawer(false);
+  else if (state.isModalOpen) toggleInfoModal(false);
+  else hideHUD();
+});
+elements.btnRevealHud.addEventListener('click', () => { showHUD(); resetIdleTimer(); });
+elements.btnPlay.addEventListener('click', togglePlayPause);
+elements.btnRewind.addEventListener('click', rewind10);
+elements.btnForward.addEventListener('click', forward10);
 
-    if (!state.currentLang){
-      state.currentLang = LANG_ORDER.find(l => embeds[l]) || Object.keys(embeds)[0];
-    }
+elements.bottomHoverDetector.addEventListener('mouseenter', () => { showHUD(); resetIdleTimer(); });
 
-    hideLoading();
+elements.slider.addEventListener('pointerdown', () => { state.isSeeking = true; });
+elements.slider.addEventListener('input', (e) => {
+  const pct = parseFloat(e.target.value);
+  state.currentTime = Math.floor((pct / 100) * state.duration);
+  elements.progressFill.style.width = `${pct}%`;
+  elements.currentTimeText.textContent = formatTime(state.currentTime);
+  resetIdleTimer();
+});
+elements.slider.addEventListener('change', (e) => {
+  state.isSeeking = false;
+  const pct = parseFloat(e.target.value);
+  state.currentTime = Math.floor((pct / 100) * state.duration);
+  sendPlayerCommand('seek', [state.currentTime]);
+  resetIdleTimer();
+});
+elements.slider.addEventListener('pointerup', () => { state.isSeeking = false; });
 
-    const srvs = embeds[state.currentLang] || {};
-    await extractAllServers(srvs);
-    renderServersList();
-    autoLoadBest();
-    resetIdle();
+window.addEventListener('mousemove', resetIdleTimer);
+window.addEventListener('touchstart', resetIdleTimer);
 
-  } catch(e){
-    console.error('[Init]', e);
-    showToast('Error: ' + e.message);
-    hideLoading();
+/* ══════════════════════════════════════════════════════════════════════════
+   ATAJOS DE TECLADO
+   ══════════════════════════════════════════════════════════════════════════ */
+window.addEventListener('keydown', (e) => {
+  if (state.isFeedbackOpen) { if (e.key === 'Escape') toggleFeedbackModal(false); return; }
+  switch (e.key) {
+    case ' ':
+    case 'Enter':
+      if (state.isModalOpen) { e.preventDefault(); toggleInfoModal(false); return; }
+      e.preventDefault(); togglePlayPause(); break;
+    case 'ArrowLeft':
+      if (state.isModalOpen) return;
+      e.preventDefault(); rewind10(); break;
+    case 'ArrowRight':
+      if (state.isModalOpen) return;
+      e.preventDefault(); forward10(); break;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (state.isOptionsDrawerOpen) toggleOptionsDrawer(false);
+      toggleInfoModal(!state.isModalOpen); break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (state.isModalOpen) toggleInfoModal(false);
+      toggleOptionsDrawer(); break;
+    case 'f':
+    case 'F':
+      e.preventDefault();
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+      break;
+    case 'i':
+    case 'I':
+      e.preventDefault(); toggleInfoModal(!state.isModalOpen); break;
+    case 'Escape':
+    case 'Backspace':
+      e.preventDefault();
+      if (state.isFeedbackOpen) toggleFeedbackModal(false);
+      else if (state.isOptionsDrawerOpen) toggleOptionsDrawer(false);
+      else if (state.isModalOpen) toggleInfoModal(false);
+      else hideHUD();
+      break;
   }
-}
-init();
+});
+
+/* Bitrate jitter */
+setInterval(() => {
+  const speeds = ['4.2MB/S', '4.3MB/S', '4.1MB/S', '4.4MB/S', '4.2MB/S'];
+  const pick = speeds[Math.floor(Math.random() * speeds.length)];
+  const indicator = $('bitrate-indicator');
+  if (indicator) indicator.textContent = pick;
+}, 4000);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   INIT
+   ══════════════════════════════════════════════════════════════════════════ */
+(async function init() {
+  const id = getQueryParam('id') || '315635';
+  const type = getQueryParam('type') || 'movie';
+  updateScrubberUI();
+  resetIdleTimer();
+  await loadMovie(id, type);
+})();
 </script>
 </body>
 </html>
