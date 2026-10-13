@@ -8,10 +8,9 @@ app.use(express.json());
 
 // ═════════════════════════════════════════════════════════════════
 // STATIC — sirve player.html desde donde esté
-// (tu Dockerfile hace: COPY api/ ./ y COPY player.html ./ → /app)
 // ═════════════════════════════════════════════════════════════════
 const staticDirs = [
-    __dirname,                            // /app  ← tu caso
+    __dirname,
     path.join(__dirname, 'public'),
     path.join(__dirname, '..'),
 ];
@@ -77,7 +76,6 @@ app.get('/api/servers', async (req, res) => {
     }
 
     try {
-        // ─── 1) Metadata desde TMDB ───────────────────────────
         let meta = null;
         if (tmdb && typeof tmdb.getMediaInfo === 'function') {
             try {
@@ -87,7 +85,6 @@ app.get('/api/servers', async (req, res) => {
             }
         }
 
-        // ─── 2) Servidores desde los providers ────────────────
         const servers = await getSourcesFromProviders(type, id);
 
         res.json({ ok: true, id, type, meta, servers });
@@ -156,6 +153,22 @@ app.post('/api/embed-links', async (req, res) => {
         console.error('[server] /api/embed-links:', err);
         res.status(500).json({ ok: false, error: err.message });
     }
+});
+
+// ═════════════════════════════════════════════════════════════════
+// PROTECCIÓN ANTI-CRASH
+// ═════════════════════════════════════════════════════════════════
+process.on('unhandledRejection', (reason) => {
+    console.error('[server] ⚠️ UnhandledRejection:', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('[server] ⚠️ UncaughtException:', err?.message || err);
+});
+
+process.on('SIGTERM', () => {
+    console.log('[server] SIGTERM recibido, cerrando...');
+    process.exit(0);
 });
 
 // ═════════════════════════════════════════════════════════════════
