@@ -12,10 +12,11 @@ try {
 }
 
 // ─── Providers DESHABILITADOS temporalmente ──────────────────────
-// pelixplay usa Puppeteer con stealth y crashea el contenedor
-// (512MB de RAM en free tier no alcanza). Lo re-habilitamos cuando
-// lo arreglemos.
 const SKIP_PROVIDERS = new Set(['pelixplay']);
+
+// ─── Providers que NO necesitan título/año ───────────────────────
+// Solo usan el ID de TMDB, así que se llaman UNA VEZ y van a latino
+const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc']);
 
 // ─── Auto-descubre .js de /providers excepto este ───────────────
 const PROVIDER_FILES = fs.readdirSync(__dirname)
@@ -24,6 +25,7 @@ const PROVIDER_FILES = fs.readdirSync(__dirname)
     .filter(f => !SKIP_PROVIDERS.has(f));
 
 console.log('[registry] Providers activos:', PROVIDER_FILES.join(', '));
+console.log('[registry] Providers directos:', Array.from(DIRECT_PROVIDERS).join(', '));
 
 const KNOWN_LANGS = new Set([
     'latino', 'español', 'espanol', 'castellano',
@@ -70,19 +72,26 @@ function withTimeout(promise, ms, label) {
     ]);
 }
 
-function normalizeResult(result, providerName, byLang) {
+// ─── Normalización de resultados ─────────────────────────────────
+function normalizeResult(result, providerName, byLang, forceLang = null) {
     if (!result) return;
 
+    // String → asignar a forceLang o latino
     if (typeof result === 'string') {
-        byLang.latino[providerName] = result;
+        const lang = forceLang || 'latino';
+        if (!byLang[lang]) byLang[lang] = {};
+        byLang[lang][providerName] = result;
         return;
     }
 
+    // Array → latino con índices
     if (Array.isArray(result)) {
         result.forEach((url, i) => {
             if (url && typeof url === 'string') {
+                const lang = forceLang || 'latino';
+                if (!byLang[lang]) byLang[lang] = {};
                 const key = i === 0 ? providerName : `${providerName}_${i + 1}`;
-                byLang.latino[key] = url;
+                byLang[lang][key] = url;
             }
         });
         return;
@@ -94,6 +103,7 @@ function normalizeResult(result, providerName, byLang) {
     const hasLangKeys = keys.some(k => KNOWN_LANGS.has(k.toLowerCase()));
 
     if (hasLangKeys) {
+        // { latino: {...}, español: {...} }
         for (const [lang, servers] of Object.entries(result)) {
             const langKey = lang.toLowerCase();
             if (!byLang[langKey]) byLang[langKey] = {};
@@ -116,20 +126,26 @@ function normalizeResult(result, providerName, byLang) {
             }
         }
     } else {
+        // { Vimeos: url, FileLions: url } → asignar a forceLang o latino
+        const lang = forceLang || 'latino';
+        if (!byLang[lang]) byLang[lang] = {};
         for (const [srvName, url] of Object.entries(result)) {
             if (url && typeof url === 'string') {
-                byLang.latino[srvName] = url;
+                byLang[lang][srvName] = url;
             }
         }
     }
 }
 
+// ═════════════════════════════════════════════════════════════════
+// FUNCIÓN PRINCIPAL
+// ═════════════════════════════════════════════════════════════════
 async function getSourcesFromProviders(type, id) {
     const byLang = {
         latino: {}, español: {}, castellano: {}, subtitulado: {},
     };
 
-    // 1) TMDB → título y año
+    // ─── 1) TMDB → título y año ─────────────────────────────────
     let title = '', year = '';
     if (tmdb && typeof tmdb.getMediaInfo === 'function') {
         try {
@@ -147,7 +163,7 @@ async function getSourcesFromProviders(type, id) {
         return {};
     }
 
-    // 2) Cada provider — SECUENCIAL y con timeout de 12s
+    // ─── 2) Cada provider ───────────────────────────────────────
     for (const file of PROVIDER_FILES) {
         const provider = safeRequire(file);
         if (!provider) continue;
@@ -159,27 +175,52 @@ async function getSourcesFromProviders(type, id) {
         }
 
         const providerName = provider.name || file;
+        const isDirect = DIRECT_PROVIDERS.has(file);
 
         try {
-            console.log(`[registry] ▶ ${file}`);
-            const result = await withTimeout(
-                fn(title, year, id, type),
-                12000,
-                file
-            );
-            normalizeResult(result, providerName, byLang);
-            console.log(`[registry] ✅ ${file} OK`);
+            if (isDirect) {
+                // Provider directo → solo ID, va a latino
+                console.log(`[registry] ▶ ${file} (DIRECTO)`);
+                const result = await withTimeout(
+                    fn(id, type, 'latino'),
+                    10000,
+                    file
+                );
+                normalizeResult(result, providerName, byLang, 'latino');
+                console.log(`[registry] ✅ ${file} OK`);
+            } else {
+                // Provider scraper → título, año, id, type, lang
+                const LANGS = ['latino', 'español', 'castellano', 'subtitulado'];
+                let anyOk = false;
+
+                for (const lang of LANGS) {
+                    try {
+                        console.log(`[registry] ▶ ${file} (${lang})`);
+                        const result = await withTimeout(
+                            fn(title, year, id, type, lang),
+                            12000,
+                            `${file}/${lang}`
+                        );
+                        if (result) anyOk = true;
+                        normalizeResult(result, providerName, byLang);
+                    } catch (langErr) {
+                        console.warn(`[registry] ⚠️ ${file}/${lang}:`, langErr.message);
+                    }
+                }
+                if (anyOk) console.log(`[registry] ✅ ${file} OK`);
+            }
         } catch (err) {
             console.warn(`[registry] ❌ ${file}:`, err.message);
         }
     }
 
+    // ─── 3) Limpiar idiomas vacíos ──────────────────────────────
     Object.keys(byLang).forEach(l => {
         if (!Object.keys(byLang[l]).length) delete byLang[l];
     });
 
-    console.log('[registry] Resultado:', JSON.stringify(byLang).slice(0, 400));
+    console.log('[registry] Resultado:', JSON.stringify(byLang).slice(0, 500));
     return byLang;
 }
 
-module.exports = { getSourcesFromProviders, PROVIDER_FILES };
+module.exports = { getSourcesFromProviders, PROVIDER_FILES, DIRECT_PROVIDERS };
