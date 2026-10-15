@@ -1,4 +1,4 @@
-// api/providers/pelispedia-is.js
+// api/providers/pelispediais.js
 /**
  * PelisPedia.is — Sitio WordPress con reproductor multi-opción
  *
