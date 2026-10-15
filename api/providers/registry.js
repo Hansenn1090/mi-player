@@ -15,27 +15,24 @@ try {
 // pelixplay: Puppeteer crashea en Render free tier
 // multi: tarda 48s en timeouts
 // cineplus123: 403 Cloudflare
-const SKIP_PROVIDERS = new Set(['pelixplay', 'multi', 'cineplus123']);
+// locopelis: doble base64 + cifrado AES (necesita Puppeteer)
+const SKIP_PROVIDERS = new Set(['pelixplay', 'multi', 'cineplus123', 'locopelis']);
 
 // ─── Providers DIRECTOS (solo necesitan el ID) ───────────────────
-const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc']);
+const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc', 'facilitoplay']);
 
 // ─── ORDEN DE PRIORIDAD ──────────────────────────────────────────
-// Los primeros aparecen como Server 1, Server 2, etc.
-// Los no listados van al final por orden alfabético.
 const PROVIDER_PRIORITY = [
   'pelispledia',      // 1º → Vimeos (HLS)
-  'pelisplay',         // 2º → NUEVO (base64 → Nupload/VOE)
-  'cuevana3',          // 3º → NUEVO (12 servidores: Dood/VOE/VidHide/StreamWish × 3 idiomas)
-  'pelispediais',     // 4º → NUEVO (3 opciones: Lat/Cast/Sub)
-  'poseidonhd2',       // 5º → HLS hosts
-  'cuevana',          // 6º → base64 (Vimeos/StreamWish/VidHide/etc)
-  'locopelis',        // 7º → NUEVO
-  'facilitoplay',      // 8º → iframe limpio
-  'playlatinsrc',      // penúltimo → iframe
-  'unlimplay',         // último → iframe
+  'cuevana3',         // 2º → iframes directos (Dood/VOE/VidHide/StreamWish)
+  'cuevana',          // 3º → base64 (Vimeos + hosts variados)
+  'pelisplay',        // 4º → base64 → Nupload/VOE (3 idiomas)
+  'pelispediais',     // 5º → 3 opciones Lat/Cast/Sub (iframe)
+  'poseidonhd2',      // 6º → HLS hosts
+  'facilitoplay',     // 7º → iframe limpio
+  'playlatinsrc',     // penúltimo → iframe
+  'unlimplay',        // último → iframe
 ];
-  
 
 // ─── Auto-descubre + ORDENA por prioridad ────────────────────────
 const PROVIDER_FILES = fs.readdirSync(__dirname)
@@ -202,8 +199,8 @@ async function getSourcesFromProviders(type, id) {
         normalizeResult(result, providerName, byLang, 'latino');
         console.log(`[registry] ✅ ${file} OK`);
       } else {
-        // SCRAPER: 2 idiomas, timeout 8s
-        const LANGS = ['latino', 'castellano'];
+        // SCRAPER: 3 idiomas, timeout 8s
+        const LANGS = ['latino', 'castellano', 'subtitulado'];
         let anyOk = false;
 
         for (const lang of LANGS) {
