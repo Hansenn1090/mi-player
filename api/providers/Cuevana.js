@@ -152,14 +152,43 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
 
   const $d = cheerio.load(detailHtml);
 
-  // Método 1: iframes
+  // ─── MÉTODO 1: iframes con base64 (showEmbed) ──────────────
+  // <iframe src="https://cuevana3.sc/embed-page?showEmbed={BASE64}">
+  $d('iframe[src*="embed-page"], iframe[src*="showEmbed"], iframe[data-src*="showEmbed"]').each((i, el) => {
+    const src = $d(el).attr('src') || $d(el).attr('data-src');
+    if (!src) return;
+    const m = src.match(/showEmbed=([A-Za-z0-9+/=]+)/);
+    if (!m) return;
+    try {
+      const decoded = Buffer.from(m[1], 'base64').toString('utf-8');
+      if (!decoded.startsWith('http')) return;
+      console.log(`[cuevana] 🔓 Base64: ${decoded}`);
+      addServer(found, 'latino', decoded, BASE);
+    } catch (e) { /* skip */ }
+  });
+
+  // ─── MÉTODO 2: buscar base64 en TODO el HTML (por si está en JS) ─
+  const base64Regex = /showEmbed=([A-Za-z0-9+/=]{20,})/g;
+  let b64Match;
+  while ((b64Match = base64Regex.exec(detailHtml)) !== null) {
+    try {
+      const decoded = Buffer.from(b64Match[1], 'base64').toString('utf-8');
+      if (!decoded.startsWith('http')) continue;
+      console.log(`[cuevana] 🔓 Base64 (regex): ${decoded}`);
+      addServer(found, 'latino', decoded, BASE);
+    } catch (e) { /* skip */ }
+  }
+
+  // ─── MÉTODO 3: iframes directos ────────────────────────────
   $d('iframe').each((i, el) => {
     const src = $d(el).attr('src') || $d(el).attr('data-src') || $d(el).attr('data-litespeed-src');
     if (!src) return;
+    // Evitar procesar de nuevo los showEmbed
+    if (src.includes('showEmbed')) return;
     addServer(found, 'latino', src, BASE);
   });
 
-  // Método 2: data-pp-embed
+  // ─── MÉTODO 4: data-pp-embed ───────────────────────────────
   $d('[data-pp-embed]').each((i, el) => {
     const embedRaw = $d(el).attr('data-pp-embed');
     const lang = ($d(el).attr('data-pp-lang') || 'latino').toLowerCase();
@@ -170,7 +199,7 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
     addServer(found, lang, m[1], BASE);
   });
 
-  // Método 3: regex en HTML completo
+  // ─── MÉTODO 5: regex en HTML completo ──────────────────────
   for (const re of URL_PATTERNS) {
     const matches = detailHtml.match(re);
     if (matches) matches.forEach(u => addServer(found, 'latino', u, BASE));
