@@ -2,6 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 
+// ─── TMDB ────────────────────────────────────────────────────────
 let tmdb = null;
 try {
   tmdb = require('../core/tmdb');
@@ -11,22 +12,26 @@ try {
 }
 
 // ─── Providers DESHABILITADOS ────────────────────────────────────
+// pelixplay: Puppeteer crashea en Render free tier
+// multi: tarda 48s en timeouts
+// cineplus123: 403 Cloudflare
 const SKIP_PROVIDERS = new Set(['pelixplay', 'multi', 'cineplus123']);
 
-// ─── Providers DIRECTOS ──────────────────────────────────────────
+// ─── Providers DIRECTOS (solo necesitan el ID) ───────────────────
 const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc']);
 
-// ─── Orden de prioridad (los primeros aparecen primero) ─────────
+// ─── ORDEN DE PRIORIDAD ──────────────────────────────────────────
+// Los primeros aparecen como Server 1, Server 2, etc.
+// Los no listados van al final por orden alfabético.
 const PROVIDER_PRIORITY = [
-  'pelispledia',      // 1º → Vimeos con control total
-  'poseidonhd2',      // 2º → HLS
+  'pelispledia',      // 1º → Vimeos (control total)
+  'poseidonhd2',      // 2º → HLS hosts (control total)
   'pelisplushd',      // 3º → lo que devuelva
   'playlatinsrc',     // penúltimo → iframe limpio
   'unlimplay',        // último → iframe multi-idioma
-  'cinemaos',         // fuera de prioridad → al final alfabético
 ];
 
-// ─── Auto-descubre + ordena ──────────────────────────────────────
+// ─── Auto-descubre + ORDENA por prioridad ────────────────────────
 const PROVIDER_FILES = fs.readdirSync(__dirname)
   .filter(f => f.endsWith('.js') && f !== 'registry.js')
   .map(f => f.replace(/\.js$/, ''))
@@ -49,10 +54,14 @@ const KNOWN_LANGS = new Set([
   'english', 'ingles', 'original',
 ]);
 
+// ─── Carga segura ────────────────────────────────────────────────
 function safeRequire(file) {
   try {
     const mod = require('./' + file);
-    if (!mod || typeof mod !== 'object') return null;
+    if (!mod || typeof mod !== 'object') {
+      console.warn(`[registry] Skip (no exporta objeto): ${file}`);
+      return null;
+    }
     return mod;
   } catch (err) {
     console.warn(`[registry] ❌ Error cargando ${file}:`, err.message);
@@ -85,12 +94,14 @@ function withTimeout(promise, ms, label) {
 
 function normalizeResult(result, providerName, byLang, forceLang = null) {
   if (!result) return;
+
   if (typeof result === 'string') {
     const lang = forceLang || 'latino';
     if (!byLang[lang]) byLang[lang] = {};
     byLang[lang][providerName] = result;
     return;
   }
+
   if (Array.isArray(result)) {
     result.forEach((url, i) => {
       if (url && typeof url === 'string') {
@@ -102,13 +113,17 @@ function normalizeResult(result, providerName, byLang, forceLang = null) {
     });
     return;
   }
+
   if (typeof result !== 'object') return;
+
   const keys = Object.keys(result);
   const hasLangKeys = keys.some(k => KNOWN_LANGS.has(k.toLowerCase()));
+
   if (hasLangKeys) {
     for (const [lang, servers] of Object.entries(result)) {
       const langKey = lang.toLowerCase();
       if (!byLang[langKey]) byLang[langKey] = {};
+
       if (typeof servers === 'string') {
         byLang[langKey][providerName] = servers;
       } else if (Array.isArray(servers)) {
@@ -141,6 +156,7 @@ async function getSourcesFromProviders(type, id) {
   const byLang = { latino: {}, español: {}, castellano: {}, subtitulado: {} };
   const t0 = Date.now();
 
+  // ─── 1) TMDB ────────────────────────────────────────────────
   let title = '', year = '';
   if (tmdb && typeof tmdb.getMediaInfo === 'function') {
     try {
@@ -158,6 +174,7 @@ async function getSourcesFromProviders(type, id) {
     return {};
   }
 
+  // ─── 2) Cada provider ───────────────────────────────────────
   for (const file of PROVIDER_FILES) {
     const provider = safeRequire(file);
     if (!provider) continue;
@@ -173,13 +190,16 @@ async function getSourcesFromProviders(type, id) {
 
     try {
       if (isDirect) {
+        // DIRECTO: solo ID, va a latino, timeout 6s
         console.log(`[registry] ▶ ${file} (DIRECTO)`);
         const result = await withTimeout(fn(id, type, 'latino'), 6000, file);
         normalizeResult(result, providerName, byLang, 'latino');
         console.log(`[registry] ✅ ${file} OK`);
       } else {
+        // SCRAPER: 2 idiomas, timeout 8s
         const LANGS = ['latino', 'castellano'];
         let anyOk = false;
+
         for (const lang of LANGS) {
           try {
             console.log(`[registry] ▶ ${file} (${lang})`);
@@ -201,6 +221,7 @@ async function getSourcesFromProviders(type, id) {
     }
   }
 
+  // ─── 3) Limpiar idiomas vacíos ──────────────────────────────
   Object.keys(byLang).forEach(l => {
     if (!Object.keys(byLang[l]).length) delete byLang[l];
   });
