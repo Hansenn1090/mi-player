@@ -2,8 +2,14 @@
 /**
  * LaMovie.org — WordPress con React, iframe Vimeos server-side
  *
- * URL pattern: /peliculas/{slug}/
- * Iframe directo en HTML: <iframe src="https://vimeos.net/embed-XXX.html">
+ * URLs:
+ *   Películas: /peliculas/{slug}/
+ *   Series:    /series/{slug}/
+ *   Animes:    /animes/{slug}/
+ *   Novelas:   /novelas/{slug}/
+ *
+ * Los iframes están en el HTML inicial (server-side rendered):
+ *   <iframe src="https://vimeos.net/embed-XXX.html" ...>
  *
  * Config del sitio:
  *   window.siteConfig.player.prior = ["vimeos", "goodstream", "voe"]
@@ -39,11 +45,28 @@ function detectServerName(url) {
   if (/mixdrop|mxdrop/i.test(u)) return 'MixDrop';
   if (/ok\.ru|okru/i.test(u)) return 'OkRu';
   if (/vidmoly/i.test(u)) return 'Vidmoly';
+  if (/streamtape|stape/i.test(u)) return 'StreamTape';
   return 'Servidor';
 }
 
+// ══════════════════════════════════════════════════════════════════
+// Helpers
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * Detecta si el tipo es una serie, anime o novela
+ */
+function getContentType(type) {
+  const t = String(type || '').toLowerCase();
+  if (['tv', 'series', 'serie', 'serials', 'tvshow', 'tvshows'].includes(t)) return 'series';
+  if (['anime', 'animes'].includes(t)) return 'animes';
+  if (['novela', 'novelas'].includes(t)) return 'novelas';
+  return 'peliculas'; // default
+}
+
 function isSeriesType(type) {
-  return ['tv', 'series', 'serie', 'serials'].includes(String(type || '').toLowerCase());
+  const ct = getContentType(type);
+  return ct === 'series' || ct === 'animes' || ct === 'novelas';
 }
 
 function normalize(s) {
@@ -73,15 +96,21 @@ function addServer(found, lang, rawUrl, baseUrl) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Buscar URL de detalle
+// Buscar URL de detalle — soporta películas, series, animes, novelas
 // ══════════════════════════════════════════════════════════════════
 async function findDetailUrl(title, year, type) {
-  const isSeries = isSeriesType(type);
+  const contentType = getContentType(type);
   const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
   const yearStr = String(year || '');
 
-  // Path según tipo
-  const pathRegex = isSeries ? /\/(series|serie)\// : /\/peliculas\//;
+  // Regex para filtrar el tipo de contenido en las URLs
+  const pathRegexes = {
+    peliculas: [/\/peliculas\//, /\/movie\//, /\/pelicula\//],
+    series:    [/\/series\//, /\/serie\//, /\/tvshows\//],
+    animes:    [/\/animes\//, /\/anime\//],
+    novelas:   [/\/novelas\//, /\/novela\//],
+  };
+  const pathRegexList = pathRegexes[contentType] || pathRegexes.peliculas;
 
   // ─── Estrategia 1: /?s= search ──────────────────────────────
   try {
@@ -99,10 +128,13 @@ async function findDetailUrl(title, year, type) {
 
     $('a').each((i, el) => {
       const href = $(el).attr('href') || '';
-      if (!pathRegex.test(href)) return;
-      if (/\/category\/|\/tag\/|\/actor\/|\/director\/|\/genero/.test(href)) return;
+      if (/\/category\/|\/tag\/|\/actor\/|\/director\/|\/genero|\/elenco/.test(href)) return;
 
-      const text = ($(el).text() + ' ' + ($(el).find('h1,h2,h3,.title').text() || '')).trim();
+      // Verificar que coincide con el tipo
+      const matchesType = pathRegexList.some(re => re.test(href));
+      if (!matchesType) return;
+
+      const text = ($(el).text() + ' ' + ($(el).find('h1,h2,h3,.title,.title-card').text() || '')).trim();
       if (text.length < 3) return;
       candidates.push({ href, text });
     });
@@ -127,8 +159,19 @@ async function findDetailUrl(title, year, type) {
       console.log(`[lamovie] Match (${bestScore}pts): ${url}`);
       return url;
     }
+
+    // Fallback: primera palabra
+    if (candidates.length > 0 && titleWords.length > 0) {
+      for (const c of candidates) {
+        if (normalize(c.text).includes(titleWords[0])) {
+          const url = c.href.startsWith('http') ? c.href : BASE + c.href;
+          console.log(`[lamovie] Fallback: ${url}`);
+          return url;
+        }
+      }
+    }
   } catch (e) {
-    console.warn('[lamovie] Error búsqueda:', e.message);
+    console.warn('[lamovie] Error búsqueda /?s=:', e.message);
   }
 
   // ─── Estrategia 2: wp-json custom API ───────────────────────
@@ -142,14 +185,16 @@ async function findDetailUrl(title, year, type) {
 
     if (Array.isArray(data) && data.length > 0) {
       for (const item of data) {
+        const itemUrl = item.url || item.link || item.permalink || '';
+        // Filtrar por tipo
+        const matchesType = pathRegexList.some(re => re.test(itemUrl));
+        if (!matchesType) continue;
+
         const itemNorm = normalize(item.title || item.name || '');
         const wordsMatched = titleWords.filter(w => itemNorm.includes(w)).length;
         if (wordsMatched >= Math.min(2, titleWords.length)) {
-          const url = item.url || item.link || item.permalink;
-          if (url) {
-            console.log(`[lamovie] wp-json match: ${url}`);
-            return url;
-          }
+          console.log(`[lamovie] wp-json match: ${itemUrl}`);
+          return itemUrl;
         }
       }
     }
@@ -161,14 +206,46 @@ async function findDetailUrl(title, year, type) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// Extraer servidores del HTML
+// ══════════════════════════════════════════════════════════════════
+function extractServersFromHtml(html, $d, found, baseUrl, lang) {
+  // ─── Método 1: iframes directos ─────────────────────────────
+  $d('iframe').each((i, el) => {
+    const src = $d(el).attr('src') || $d(el).attr('data-src');
+    if (!src) return;
+    if (src === 'about:blank') return;
+    if (!src.startsWith('http')) return;
+    addServer(found, lang, src, baseUrl);
+  });
+
+  // ─── Método 2: regex sobre HTML (para casos edge) ──────────
+  const patterns = [
+    /https?:\/\/(?:www\.)?vimeos\.[^\s"'<>)]+/gi,
+    /https?:\/\/(?:www\.)?(?:streamwish|embedwish|hglink)\.[^\s"'<>)]+/gi,
+    /https?:\/\/(?:www\.)?(?:vidhide|filelions)\.[^\s"'<>)]+/gi,
+    /https?:\/\/(?:www\.)?voe\.[a-z]+[^\s"'<>)]*/gi,
+    /https?:\/\/(?:www\.)?goodstream\.[^\s"'<>)]+/gi,
+    /https?:\/\/(?:www\.)?filemoon\.[^\s"'<>)]+/gi,
+    /https?:\/\/(?:www\.)?doodstream\.[^\s"'<>)]+/gi,
+    /https?:\/\/(?:www\.)?mixdrop\.[^\s"'<>)]+/gi,
+    /https?:\/\/(?:www\.)?vidmoly\.[^\s"'<>)]+/gi,
+  ];
+
+  for (const re of patterns) {
+    const matches = html.match(re);
+    if (matches) matches.forEach(u => addServer(found, lang, u, baseUrl));
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // Función principal — firma correcta (title, year, tmdbId, type, lang)
 // ══════════════════════════════════════════════════════════════════
 async function scrapeLamovie(title, year, tmdbId, type = 'movie', lang = 'latino') {
   const found = {};
   if (!title) return found;
 
-  const isSeries = isSeriesType(type);
-  console.log(`[lamovie] Buscando: "${title}" (${year}) [${isSeries ? 'serie' : 'película'}]`);
+  const contentType = getContentType(type);
+  console.log(`[lamovie] Buscando: "${title}" (${year}) [${contentType}]`);
 
   // 1) Encontrar URL de detalle
   const detailUrl = await findDetailUrl(title, year, type);
@@ -195,29 +272,28 @@ async function scrapeLamovie(title, year, tmdbId, type = 'movie', lang = 'latino
 
   const $d = cheerio.load(detailHtml);
 
-  // 3) Extraer iframes — el primero suele ser Vimeos (prior = ["vimeos", ...])
-  $d('iframe').each((i, el) => {
-    const src = $d(el).attr('src') || $d(el).attr('data-src');
-    if (!src) return;
-    if (src === 'about:blank') return;
-    if (!src.startsWith('http')) return;
-    addServer(found, lang, src, BASE);
-  });
+  // 3) Extraer servidores del HTML inicial
+  extractServersFromHtml(detailHtml, $d, found, BASE, lang);
 
-  // 4) Fallback: buscar URLs de hosts conocidos en el HTML
-  const patterns = [
-    /https?:\/\/(?:www\.)?vimeos\.[^\s"'<>)]+/gi,
-    /https?:\/\/(?:www\.)?(?:streamwish|embedwish|hglink)\.[^\s"'<>)]+/gi,
-    /https?:\/\/(?:www\.)?(?:vidhide|filelions)\.[^\s"'<>)]+/gi,
-    /https?:\/\/(?:www\.)?voe\.[a-z]+[^\s"'<>)]*/gi,
-    /https?:\/\/(?:www\.)?goodstream\.[^\s"'<>)]+/gi,
-    /https?:\/\/(?:www\.)?filemoon\.[^\s"'<>)]+/gi,
-    /https?:\/\/(?:www\.)?doodstream\.[^\s"'<>)]+/gi,
-  ];
+  // 4) Para series: buscar servidores adicionales por episodio
+  // Las series pueden tener iframes adicionales en tabs ocultos
+  if (isSeriesType(type)) {
+    // Buscar contenedores con data-server, data-iframe, data-url
+    $d('[data-server], [data-iframe], [data-url], [data-src]').each((i, el) => {
+      const src = $d(el).attr('data-server')
+        || $d(el).attr('data-iframe')
+        || $d(el).attr('data-url')
+        || $d(el).attr('data-src');
+      if (!src || !src.startsWith('http')) return;
+      addServer(found, lang, src, BASE);
+    });
 
-  for (const re of patterns) {
-    const matches = detailHtml.match(re);
-    if (matches) matches.forEach(u => addServer(found, lang, u, BASE));
+    // Buscar JSON embebido con servidores
+    const scriptRegex = /["'](?:url|iframe|src)["']\s*:\s*["'](https?:\/\/[^"']+)["']/gi;
+    let match;
+    while ((match = scriptRegex.exec(detailHtml)) !== null) {
+      addServer(found, lang, match[1], BASE);
+    }
   }
 
   const total = Object.values(found).reduce((a, s) => a + Object.keys(s).length, 0);
