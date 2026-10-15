@@ -2,11 +2,12 @@
 /**
  * Cuevana3.now — WordPress con reproductor multi-idioma
  *
- * Estrategia:
- *   1. Buscar por título en /?s=... (WordPress)
- *   2. Buscar por título en wp-json API (fallback)
- *   3. Cargar la página de detalle
- *   4. Extraer TODOS los iframes del contenedor `.TPlayerTb`
+ * Soporta películas y series:
+ *   Películas: /{post_id}/{slug}   o /peliculas-online/{post_id}/{slug}/
+ *   Series:    /serie/{slug}       o /series-online/{post_id}/{slug}/
+ *
+ * El ID en la URL NO es el TMDB ID — es el ID interno de WordPress.
+ * Por eso SIEMPRE buscamos por título (no construimos URL con TMDB ID).
  *
  * Los iframes tienen ID OptE{X}{Y}:
  *   OptE1X → Latino (Dood/VOE/VidHide/StreamWish)
@@ -56,12 +57,18 @@ function detectServerName(url) {
 
 // Mapeo de ID → idioma
 const ID_LANG = {
-  '1': 'latino',       // OptE1X → Latino
-  '2': 'subtitulado',  // OptE2X → Subtitulado
-  '3': 'castellano',   // OptE3X → Español (castellano)
+  '1': 'latino',
+  '2': 'subtitulado',
+  '3': 'castellano',
 };
 
-// Normaliza texto para comparar
+// ══════════════════════════════════════════════════════════════════
+// Helpers
+// ══════════════════════════════════════════════════════════════════
+function isSeriesType(type) {
+  return ['tv', 'series', 'serie', 'serials'].includes(String(type || '').toLowerCase());
+}
+
 function normalize(s) {
   return (s || '').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -70,20 +77,65 @@ function normalize(s) {
     .trim();
 }
 
-// Extrae año del texto
-function extractYear(text) {
-  const m = String(text || '').match(/\b(19|20)\d{2}\b/);
-  return m ? m[0] : '';
-}
-
 // ══════════════════════════════════════════════════════════════════
-// Buscar URL de detalle por título
+// Buscar URL de detalle por título (con soporte series)
 // ══════════════════════════════════════════════════════════════════
-async function findDetailUrl(title, year) {
+async function findDetailUrl(title, year, type) {
+  const isSeries = isSeriesType(type);
   const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
   const yearStr = String(year || '');
 
-  // ─── Estrategia 1: WordPress search (/?s=) ───────────────────
+  // Paths válidos según tipo
+  const pathMatchers = isSeries
+    ? [/^\/serie\//, /\/series-online\//, /^\/serie\//]
+    : [/^\/\d+\//, /\/peliculas-online\//, /\/pelicula\//];
+
+  // ─── Estrategia 1: wp-json API ───────────────────────────────
+  try {
+    const apiUrl = `${BASE}/wp-json/wp/v2/search?search=${encodeURIComponent(title)}&per_page=15`;
+    console.log(`[cuevana3] WP-API: ${apiUrl}`);
+    const { data } = await axios.get(apiUrl, {
+      timeout: 10000,
+      headers: getHeaders(),
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    if (Array.isArray(data) && data.length > 0) {
+      let best = null;
+      let bestScore = 0;
+
+      for (const item of data) {
+        if (!item.url) continue;
+
+        // Filtrar por tipo (película/serie) según la URL
+        const urlPath = item.url.replace(BASE, '');
+        const matchesType = isSeries
+          ? /\/(serie|series|series-online)/i.test(urlPath)
+          : /\/(pelicula|peliculas-online|\d+)/i.test(urlPath) && !/\/(serie|series)/i.test(urlPath);
+
+        if (!matchesType) continue;
+
+        const itemNorm = normalize(item.title || '');
+        const wordsMatched = titleWords.filter(w => itemNorm.includes(w)).length;
+        const yearMatch = yearStr && (item.url.includes(yearStr) || item.title.includes(yearStr));
+        const score = wordsMatched + (yearMatch ? 3 : 0);
+
+        if (score > bestScore && wordsMatched >= Math.min(2, titleWords.length)) {
+          bestScore = score;
+          best = item;
+        }
+      }
+
+      if (best) {
+        console.log(`[cuevana3] WP-API match (${bestScore}pts): ${best.title} → ${best.url}`);
+        return best.url;
+      }
+    }
+  } catch (e) {
+    console.warn('[cuevana3] WP-API falló:', e.message);
+  }
+
+  // ─── Estrategia 2: /?s= search ───────────────────────────────
   try {
     const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
     console.log(`[cuevana3] Search: ${searchUrl}`);
@@ -98,10 +150,11 @@ async function findDetailUrl(title, year) {
 
     $('a').each((i, el) => {
       const href = $(el).attr('href') || '';
-      // Cuevana3 usa /{id}/{slug} o /peliculas-online/{id}/{slug}/
-      if (!/^\/\d+\//.test(href) && !href.includes('/peliculas-online/')) return;
-      // Evitar categorías, tags, etc.
       if (/\/category\/|\/tag\/|\/actor\/|\/director\/|\/genero/.test(href)) return;
+
+      // Verificar que coincide con el tipo
+      const matchesType = pathMatchers.some(re => re.test(href));
+      if (!matchesType) return;
 
       const text = ($(el).text() + ' ' + ($(el).find('h1,h2,h3,.Title,.title').text() || '')).trim();
       if (text.length < 3) return;
@@ -111,7 +164,6 @@ async function findDetailUrl(title, year) {
 
     console.log(`[cuevana3] Candidatos: ${candidates.length}`);
 
-    // Buscar mejor match
     let best = null;
     let bestScore = 0;
 
@@ -132,48 +184,34 @@ async function findDetailUrl(title, year) {
       console.log(`[cuevana3] Match (${bestScore}pts): ${best.text.slice(0, 60)} → ${fullUrl}`);
       return fullUrl;
     }
-  } catch (e) {
-    console.warn('[cuevana3] Error en /?s=:', e.message);
-  }
 
-  // ─── Estrategia 2: wp-json API ───────────────────────────────
-  try {
-    const apiUrl = `${BASE}/wp-json/wp/v2/search?search=${encodeURIComponent(title)}&per_page=10`;
-    console.log(`[cuevana3] WP-API: ${apiUrl}`);
-    const { data } = await axios.get(apiUrl, {
-      timeout: 10000,
-      headers: getHeaders(),
-      validateStatus: s => s >= 200 && s < 400,
-    });
-
-    if (Array.isArray(data)) {
-      for (const item of data) {
-        if (!item.url) continue;
-        const itemNorm = normalize(item.title || '');
-        const wordsMatched = titleWords.filter(w => itemNorm.includes(w)).length;
-        if (wordsMatched >= Math.min(2, titleWords.length)) {
-          console.log(`[cuevana3] WP-API match: ${item.title} → ${item.url}`);
-          return item.url;
+    // Fallback: primera palabra
+    if (candidates.length > 0 && titleWords.length > 0) {
+      for (const c of candidates) {
+        if (normalize(c.text).includes(titleWords[0])) {
+          return c.href.startsWith('http') ? c.href : BASE + c.href;
         }
       }
     }
   } catch (e) {
-    // WP-API puede estar deshabilitado, es normal
+    console.warn('[cuevana3] Error en /?s=:', e.message);
   }
 
   return null;
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Función principal
+// Función principal — firma correcta (title, year, tmdbId, type, lang)
 // ══════════════════════════════════════════════════════════════════
-async function scrapeCuevana3(title, year, tmdbId, type = 'movie') {
+async function scrapeCuevana3(title, year, tmdbId, type = 'movie', lang = 'latino') {
   const found = {};
   if (!title) return found;
-  console.log('[cuevana3] Buscando:', title, year || '');
+
+  const isSeries = isSeriesType(type);
+  console.log(`[cuevana3] Buscando: "${title}" (${year}) [${isSeries ? 'serie' : 'película'}]`);
 
   // 1) Encontrar URL de detalle
-  const detailUrl = await findDetailUrl(title, year);
+  const detailUrl = await findDetailUrl(title, year, type);
 
   if (!detailUrl) {
     console.log('[cuevana3] No encontró detalle');
@@ -211,29 +249,32 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie') {
       || '';
 
     const idMatch = parentId.match(/OptE(\d)(\d)/);
-    let lang = 'latino';
+    let detectedLang = 'latino';
     let hostIndex = i + 1;
 
     if (idMatch) {
       const langDigit = idMatch[1];
       hostIndex = parseInt(idMatch[2], 10);
-      lang = ID_LANG[langDigit] || 'latino';
+      detectedLang = ID_LANG[langDigit] || 'latino';
+    } else {
+      // Si no hay OptE, usar el lang pasado como parámetro
+      detectedLang = lang || 'latino';
     }
 
     const hostName = detectServerName(src);
     if (hostName === 'Servidor') return;
 
     const key = hostName.toLowerCase();
-    if (!found[lang]) found[lang] = {};
+    if (!found[detectedLang]) found[detectedLang] = {};
 
     let finalKey = key;
-    if (found[lang][finalKey]) {
+    if (found[detectedLang][finalKey]) {
       finalKey = `${key}_${hostIndex}`;
     }
 
-    if (!found[lang][finalKey]) {
-      found[lang][finalKey] = src;
-      console.log(`[cuevana3] ✅ ${lang}/${finalKey}: ${src.slice(0, 90)}`);
+    if (!found[detectedLang][finalKey]) {
+      found[detectedLang][finalKey] = src;
+      console.log(`[cuevana3] ✅ ${detectedLang}/${finalKey}: ${src.slice(0, 90)}`);
     }
   });
 
@@ -243,8 +284,9 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie') {
 }
 
 module.exports = {
+  name: 'cuevana3',
   scrapeCuevana3,
-  search: async (title, year, tmdbId, type) => scrapeCuevana3(title, year, tmdbId, type),
+  search: async (title, year, tmdbId, type, lang) => scrapeCuevana3(title, year, tmdbId, type, lang),
 };
 
 console.log('[cuevana3] Provider cargado');
