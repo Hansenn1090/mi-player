@@ -1,4 +1,19 @@
 // api/providers/cuevana.js
+/**
+ * Cuevana3.sc — WordPress con reproductor multi-idioma
+ *
+ * Soporta películas y series:
+ *   Películas: /peliculas-online/{post_id}/{slug}/
+ *   Series:    /series-online/{post_id}/{slug}/
+ *
+ * El número (120290) NO es el TMDB ID — es el ID interno de WordPress.
+ * Por eso SIEMPRE buscamos por título (no construimos URL con TMDB ID).
+ *
+ * Los iframes usan showEmbed=BASE64 que decodifica a la URL real:
+ *   https://cuevana3.sc/embed-page?showEmbed=aHR0cHM6Ly92aW1lb3MubmV0L2VtYmVk...
+ *   → https://vimeos.net/embed-2nulhg4mnuz7.html
+ */
+
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -23,7 +38,7 @@ function detectServerName(url) {
   if (/voe\.sx|voe\.de|voe\.bar|voe\.net|voe\.to/i.test(u)) return 'VOE';
   if (/vimeos/i.test(u)) return 'Vimeos';
   if (/streamwish|embedwish|hglink|flaswish|wishfast/i.test(u)) return 'StreamWish';
-  if (/vidhide|morencius|minochinos|callistanise|hgcloud|filelions/i.test(u)) return 'FileLions';
+  if (/vidhide|morencius|minochinos|callistanise|hgcloud|filelions/i.test(u)) return 'VidHide';
   if (/filemoon|moonplayer|byse/i.test(u)) return 'FileMoon';
   if (/doodstream|dood\.la|dood\.sh|d000d/i.test(u)) return 'DoodStream';
   if (/fembed/i.test(u)) return 'Fembed';
@@ -57,6 +72,20 @@ const URL_PATTERNS = [
   /https?:\/\/(?:www\.)?streamplay\.[^\s"'<>)]+/gi,
 ];
 
+// ══════════════════════════════════════════════════════════════════
+// Helpers
+// ══════════════════════════════════════════════════════════════════
+function isSeriesType(type) {
+  return ['tv', 'series', 'serie', 'serials'].includes(String(type || '').toLowerCase());
+}
+
+function normalize(s) {
+  return (s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ')
+    .trim();
+}
+
 function addServer(found, lang, rawUrl, baseUrl) {
   if (!rawUrl) return;
   let u = String(rawUrl).trim();
@@ -75,61 +104,125 @@ function addServer(found, lang, rawUrl, baseUrl) {
   }
 }
 
-async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
+// ══════════════════════════════════════════════════════════════════
+// Encontrar URL de detalle
+// ══════════════════════════════════════════════════════════════════
+async function findDetailUrl(title, year, tmdbId, type) {
+  const isSeries = isSeriesType(type);
+  const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
+  const yearStr = String(year || '');
+  const pathPrefix = isSeries ? '/series-online/' : '/peliculas-online/';
+
+  // ─── Estrategia 1: wp-json API (más fiable) ────────────────
+  try {
+    const apiUrl = `${BASE}/wp-json/wp/v2/search?search=${encodeURIComponent(title)}&per_page=10&type=post`;
+    console.log(`[cuevana] WP-API: ${apiUrl}`);
+
+    const { data } = await axios.get(apiUrl, {
+      timeout: 10000,
+      headers: getHeaders(),
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    if (Array.isArray(data) && data.length > 0) {
+      let best = null;
+      let bestScore = 0;
+
+      for (const item of data) {
+        if (!item.url) continue;
+        const itemNorm = normalize(item.title || '');
+        const wordsMatched = titleWords.filter(w => itemNorm.includes(w)).length;
+        const yearMatch = yearStr && (item.url.includes(yearStr) || item.title.includes(yearStr));
+        const score = wordsMatched + (yearMatch ? 3 : 0);
+
+        if (score > bestScore && wordsMatched >= Math.min(2, titleWords.length)) {
+          bestScore = score;
+          best = item;
+        }
+      }
+
+      if (best) {
+        console.log(`[cuevana] WP-API match (${bestScore}pts): ${best.title} → ${best.url}`);
+        return best.url;
+      }
+    }
+  } catch (e) {
+    console.warn('[cuevana] WP-API falló:', e.message);
+  }
+
+  // ─── Estrategia 2: /?s= search ─────────────────────────────
+  try {
+    const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
+    const { data: searchHtml } = await axios.get(searchUrl, {
+      timeout: 10000,
+      headers: getHeaders({ 'Referer': BASE + '/' }),
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    const $ = cheerio.load(searchHtml);
+    const candidates = [];
+
+    $('a').each((i, el) => {
+      const href = $(el).attr('href') || '';
+      if (!href.includes(pathPrefix)) return;
+      // Ignorar categorías, tags
+      if (/\/category\/|\/tag\/|\/actor\/|\/director\/|\/genero/.test(href)) return;
+
+      const text = ($(el).text() + ' ' + ($(el).find('h1,h2,h3,.Title,.title').text() || '')).toLowerCase();
+      if (text.length < 3) return;
+
+      candidates.push({ href, text });
+    });
+
+    console.log(`[cuevana] Candidatos /?s=: ${candidates.length}`);
+
+    let best = null;
+    let bestScore = 0;
+
+    for (const c of candidates) {
+      const candNorm = normalize(c.text);
+      const wordsMatched = titleWords.filter(w => candNorm.includes(w)).length;
+      const yearMatch = yearStr && c.text.includes(yearStr);
+      const score = wordsMatched + (yearMatch ? 3 : 0);
+
+      if (score > bestScore && wordsMatched >= Math.min(2, titleWords.length)) {
+        bestScore = score;
+        best = c;
+      }
+    }
+
+    if (best) {
+      console.log(`[cuevana] /?s= match (${bestScore}pts): ${best.text.slice(0, 60)} → ${best.href}`);
+      return best.href.startsWith('http') ? best.href : BASE + best.href;
+    }
+
+    // Fallback: primera palabra
+    if (candidates.length > 0 && titleWords.length > 0) {
+      for (const c of candidates) {
+        if (normalize(c.text).includes(titleWords[0])) {
+          return c.href.startsWith('http') ? c.href : BASE + c.href;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[cuevana] Error /?s=:', e.message);
+  }
+
+  return null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Función principal — firma correcta (title, year, tmdbId, type, lang)
+// ══════════════════════════════════════════════════════════════════
+async function scrapeCuevana(title, year, tmdbId, type = 'movie', lang = 'latino') {
   const found = {};
   if (!title) return found;
-  console.log('[cuevana] Buscando:', title, year || '');
 
-  let detailUrl = null;
+  const isSeries = isSeriesType(type);
+  console.log(`[cuevana] Buscando: "${title}" (${year}) [${isSeries ? 'serie' : 'película'}]`);
 
-  // Estrategia 1: si tenemos TMDB ID, construir URL directa
-  if (tmdbId) {
-    const slug = title.toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-');
-    const possibleUrls = [
-      `${BASE}/peliculas-online/${tmdbId}/${slug}-online-gratis-en-cuevana/`,
-      `${BASE}/peliculas-online/${tmdbId}/${slug}/`,
-    ];
-    for (const u of possibleUrls) {
-      try {
-        const r = await axios.head(u, { headers: getHeaders(), timeout: 5000, validateStatus: s => s < 400 });
-        if (r.status < 400) { detailUrl = u; break; }
-      } catch (_) {}
-    }
-  }
-
-  // Estrategia 2: buscar por título
-  if (!detailUrl) {
-    try {
-      const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
-      const { data: searchHtml } = await axios.get(searchUrl, {
-        timeout: 10000,
-        headers: getHeaders({ 'Referer': BASE + '/' }),
-        validateStatus: s => s >= 200 && s < 400,
-      });
-
-      const $ = cheerio.load(searchHtml);
-      const normalize = s => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-      const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
-      const yearStr = String(year || '');
-
-      $('a').each((i, el) => {
-        if (detailUrl) return;
-        const href = $(el).attr('href') || '';
-        if (!href.includes('/pelicula') && !href.includes('/peliculas-online/')) return;
-        const text = normalize($(el).text());
-        const matches = titleWords.filter(w => text.includes(w));
-        if (matches.length >= Math.min(2, titleWords.length)) {
-          if (!yearStr || href.includes(yearStr) || $(el).text().includes(yearStr) || !yearStr) {
-            detailUrl = href.startsWith('http') ? href : BASE + href;
-          }
-        }
-      });
-    } catch (e) {
-      console.warn('[cuevana] Error búsqueda:', e.message);
-    }
-  }
+  // 1) Encontrar URL de detalle
+  const detailUrl = await findDetailUrl(title, year, tmdbId, type);
 
   if (!detailUrl) {
     console.log('[cuevana] No encontró detalle');
@@ -137,6 +230,7 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
   }
   console.log('[cuevana] Detalle:', detailUrl);
 
+  // 2) Cargar página de detalle
   let detailHtml = '';
   try {
     const { data } = await axios.get(detailUrl, {
@@ -153,7 +247,6 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
   const $d = cheerio.load(detailHtml);
 
   // ─── MÉTODO 1: iframes con base64 (showEmbed) ──────────────
-  // <iframe src="https://cuevana3.sc/embed-page?showEmbed={BASE64}">
   $d('iframe[src*="embed-page"], iframe[src*="showEmbed"], iframe[data-src*="showEmbed"]').each((i, el) => {
     const src = $d(el).attr('src') || $d(el).attr('data-src');
     if (!src) return;
@@ -163,7 +256,7 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
       const decoded = Buffer.from(m[1], 'base64').toString('utf-8');
       if (!decoded.startsWith('http')) return;
       console.log(`[cuevana] 🔓 Base64: ${decoded}`);
-      addServer(found, 'latino', decoded, BASE);
+      addServer(found, lang, decoded, BASE);
     } catch (e) { /* skip */ }
   });
 
@@ -175,7 +268,7 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
       const decoded = Buffer.from(b64Match[1], 'base64').toString('utf-8');
       if (!decoded.startsWith('http')) continue;
       console.log(`[cuevana] 🔓 Base64 (regex): ${decoded}`);
-      addServer(found, 'latino', decoded, BASE);
+      addServer(found, lang, decoded, BASE);
     } catch (e) { /* skip */ }
   }
 
@@ -183,26 +276,26 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
   $d('iframe').each((i, el) => {
     const src = $d(el).attr('src') || $d(el).attr('data-src') || $d(el).attr('data-litespeed-src');
     if (!src) return;
-    // Evitar procesar de nuevo los showEmbed
-    if (src.includes('showEmbed')) return;
-    addServer(found, 'latino', src, BASE);
+    if (src.includes('showEmbed')) return; // Ya procesados
+    if (src === 'about:blank') return;
+    addServer(found, lang, src, BASE);
   });
 
   // ─── MÉTODO 4: data-pp-embed ───────────────────────────────
   $d('[data-pp-embed]').each((i, el) => {
     const embedRaw = $d(el).attr('data-pp-embed');
-    const lang = ($d(el).attr('data-pp-lang') || 'latino').toLowerCase();
+    const langAttr = ($d(el).attr('data-pp-lang') || lang).toLowerCase();
     if (!embedRaw) return;
     const decoded = embedRaw.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
     const m = decoded.match(/src=["']([^"']+)["']/);
     if (!m) return;
-    addServer(found, lang, m[1], BASE);
+    addServer(found, langAttr, m[1], BASE);
   });
 
   // ─── MÉTODO 5: regex en HTML completo ──────────────────────
   for (const re of URL_PATTERNS) {
     const matches = detailHtml.match(re);
-    if (matches) matches.forEach(u => addServer(found, 'latino', u, BASE));
+    if (matches) matches.forEach(u => addServer(found, lang, u, BASE));
   }
 
   const total = Object.values(found).reduce((a, s) => a + Object.keys(s).length, 0);
@@ -211,8 +304,9 @@ async function scrapeCuevana(title, year, tmdbId, type = 'movie') {
 }
 
 module.exports = {
+  name: 'cuevana',
   scrapeCuevana,
-  search: async (title, year, tmdbId, type) => scrapeCuevana(title, year, tmdbId, type),
+  search: async (title, year, tmdbId, type, lang) => scrapeCuevana(title, year, tmdbId, type, lang),
 };
 
 console.log('[cuevana] Provider cargado');
