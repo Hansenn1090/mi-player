@@ -11,27 +11,34 @@ try {
   console.warn('[registry] ⚠️ core/tmdb NO cargado:', err.message);
 }
 
-// ─── Providers DESHABILITADOS ────────────────────────────────────
-// pelixplay: Puppeteer crashea en Render free tier
-// multi: tarda 48s en timeouts
-// cineplus123: 403 Cloudflare
-// locopelis: doble base64 + cifrado AES (necesita Puppeteer)
-const SKIP_PROVIDERS = new Set(['pelixplay', 'multi', 'cineplus123', 'locopelis']);
+// ─── Providers DESHABILITADOS (solo los que tienen problemas técnicos reales) ───
+// pelixplay:      Puppeteer crashea en Render free tier
+// multi:          Timeout excesivo (48s)
+// cineplus123:    Cloudflare 403 permanente
+// locopelis:      Doble base64 + cifrado AES
+// poseidonhd2:    Hosts con anti-bot (requiere Puppeteer)
+const SKIP_PROVIDERS = new Set([
+  'pelixplay',
+  'multi',
+  'cineplus123',
+  'locopelis',
+  'poseidonhd2',
+]);
 
 // ─── Providers DIRECTOS (solo necesitan el ID) ───────────────────
 const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc', 'facilitoplay']);
 
 // ─── ORDEN DE PRIORIDAD ──────────────────────────────────────────
 const PROVIDER_PRIORITY = [
-  'pelispledia',      // 1º → Vimeos (HLS)
-  'cuevana3',         // 2º → iframes directos (Dood/VOE/VidHide/StreamWish)
-  'cuevana',          // 3º → base64 (Vimeos + hosts variados)
-  'pelisplay',        // 4º → base64 → Nupload/VOE (3 idiomas)
-  'pelispediais',     // 5º → 3 opciones Lat/Cast/Sub (iframe)
-  'lamovie',          // 6 ← NUEVO (iframe Vimeos)
-  'facilitoplay',     // 7º → iframe limpio
-  'playlatinsrc',     // penúltimo → iframe
-  'unlimplay',        // último → iframe
+  'pelispledia',      // 1º → Vimeos (HLS control total)
+  'lamovie',          // 2º → Vimeos server-side (HLS control total)
+  'cuevana3',         // 3º → hosts variados
+  'cuevana',          // 4º → base64 (Vimeos + hosts variados)
+  'pelisplay',        // 5º → hosts base64 (Nupload, VOE)
+  'pelispediais',     // 6º → 3 opciones Lat/Cast/Sub
+  'facilitoplay',     // 7º → iframe multi-idioma
+  'playlatinsrc',     // 8º → iframe multi-idioma
+  'unlimplay',        // último → iframe multi-idioma
 ];
 
 // ─── Auto-descubre + ORDENA por prioridad ────────────────────────
@@ -57,7 +64,6 @@ const KNOWN_LANGS = new Set([
   'english', 'ingles', 'original',
 ]);
 
-// ─── Carga segura ────────────────────────────────────────────────
 function safeRequire(file) {
   try {
     const mod = require('./' + file);
@@ -159,7 +165,6 @@ async function getSourcesFromProviders(type, id) {
   const byLang = { latino: {}, español: {}, castellano: {}, subtitulado: {} };
   const t0 = Date.now();
 
-  // ─── 1) TMDB ────────────────────────────────────────────────
   let title = '', year = '';
   if (tmdb && typeof tmdb.getMediaInfo === 'function') {
     try {
@@ -177,7 +182,6 @@ async function getSourcesFromProviders(type, id) {
     return {};
   }
 
-  // ─── 2) Cada provider ───────────────────────────────────────
   for (const file of PROVIDER_FILES) {
     const provider = safeRequire(file);
     if (!provider) continue;
@@ -193,13 +197,11 @@ async function getSourcesFromProviders(type, id) {
 
     try {
       if (isDirect) {
-        // DIRECTO: solo ID, va a latino, timeout 6s
         console.log(`[registry] ▶ ${file} (DIRECTO)`);
         const result = await withTimeout(fn(id, type, 'latino'), 6000, file);
         normalizeResult(result, providerName, byLang, 'latino');
         console.log(`[registry] ✅ ${file} OK`);
       } else {
-        // SCRAPER: 3 idiomas, timeout 8s
         const LANGS = ['latino', 'castellano', 'subtitulado'];
         let anyOk = false;
 
@@ -224,7 +226,6 @@ async function getSourcesFromProviders(type, id) {
     }
   }
 
-  // ─── 3) Limpiar idiomas vacíos ──────────────────────────────
   Object.keys(byLang).forEach(l => {
     if (!Object.keys(byLang[l]).length) delete byLang[l];
   });
