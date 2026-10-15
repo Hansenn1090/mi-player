@@ -24,9 +24,11 @@ const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc']);
 // Los primeros aparecen como Server 1, Server 2, etc.
 // Los no listados van al final por orden alfabético.
 const PROVIDER_PRIORITY = [
-  'pelispledia',      // 1º → Vimeos (control total)
-  'poseidonhd2',      // 2º → HLS hosts (control total)
-  'pelisplushd',      // 3º → lo que devuelva
+  'pelispledia',      // 1º → Vimeos
+  'poseidonhd2',      // 2º → HLS hosts
+  'pelisplushd',      // 3º
+  'cuevana',          // 4º → NUEVO
+  'locopelis',        // 5º → NUEVO
   'playlatinsrc',     // penúltimo → iframe limpio
   'unlimplay',        // último → iframe multi-idioma
 ];
