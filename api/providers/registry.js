@@ -24,12 +24,13 @@ const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc']);
 // Los primeros aparecen como Server 1, Server 2, etc.
 // Los no listados van al final por orden alfabético.
 const PROVIDER_PRIORITY = [
-  'pelispledia',       // 1º → Vimeos (HLS)
-  'pelispediais',     // 2º → NUEVO (3 opciones: Lat/Cast/Sub)
-  'poseidonhd2',       // 3º → HLS hosts
-  'cuevana',          // 4º → NUEVO
-  'locopelis',        // 5º → NUEVO
-  'facilitoplay',      // 4º → iframe limpio
+  'pelispledia',      // 1º → Vimeos (HLS)
+  'cuevana3',          // 2º → NUEVO (12 servidores: Dood/VOE/VidHide/StreamWish × 3 idiomas)
+  'pelispediais',     // 3º → NUEVO (3 opciones: Lat/Cast/Sub)
+  'poseidonhd2',       // 4º → HLS hosts
+  'cuevana',          // 5º → NUEVO
+  'locopelis',        // 6º → NUEVO
+  'facilitoplay',      // 7º → iframe limpio
   'playlatinsrc',      // penúltimo → iframe
   'unlimplay',         // último → iframe
 ];
