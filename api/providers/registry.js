@@ -28,7 +28,7 @@ const PROVIDER_PRIORITY = [
   'cuevana',          // 3º → base64 (Vimeos + hosts variados)
   'pelisplay',        // 4º → base64 → Nupload/VOE (3 idiomas)
   'pelispediais',     // 5º → 3 opciones Lat/Cast/Sub (iframe)
-  'poseidonhd2',      // 6º → HLS hosts
+  'lamovie',          // 6 ← NUEVO (iframe Vimeos)
   'facilitoplay',     // 7º → iframe limpio
   'playlatinsrc',     // penúltimo → iframe
   'unlimplay',        // último → iframe
