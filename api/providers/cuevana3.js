@@ -1,12 +1,17 @@
 // api/providers/cuevana3.js
 /**
- * Cuevana3 — WordPress con reproductor multi-idioma
+ * Cuevana3.now — WordPress con reproductor multi-idioma
  *
- * Extrae TODOS los iframes del contenedor `.TPlayerTb`
- * Cada iframe tiene un ID que indica idioma y host:
- *   OptE11, OptE12, OptE13, OptE14 → Latino (Dood/VOE/VidHide/StreamWish)
- *   OptE21, OptE22, OptE23, OptE24 → Subtitulado
- *   OptE31, OptE32, OptE33, OptE34 → Español (castellano)
+ * Estrategia:
+ *   1. Buscar por título en /?s=... (WordPress)
+ *   2. Buscar por título en wp-json API (fallback)
+ *   3. Cargar la página de detalle
+ *   4. Extraer TODOS los iframes del contenedor `.TPlayerTb`
+ *
+ * Los iframes tienen ID OptE{X}{Y}:
+ *   OptE1X → Latino (Dood/VOE/VidHide/StreamWish)
+ *   OptE2X → Subtitulado
+ *   OptE3X → Español (castellano)
  */
 
 const axios = require('axios');
@@ -28,7 +33,6 @@ function getHeaders(extra = {}) {
   };
 }
 
-// Detección de nombre de servidor por URL
 function detectServerName(url) {
   const u = (url || '').toLowerCase();
   if (/voe\.sx|voe\.de|voe\.bar|voe\.net|voe\.to/i.test(u)) return 'VOE';
@@ -57,70 +61,119 @@ const ID_LANG = {
   '3': 'castellano',   // OptE3X → Español (castellano)
 };
 
-// Mapeo de ID → prioridad de host (para reordenar)
-const HOST_ORDER = ['doodstream', 'voe', 'vidhide', 'streamwish'];
+// Normaliza texto para comparar
+function normalize(s) {
+  return (s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
+// Extrae año del texto
+function extractYear(text) {
+  const m = String(text || '').match(/\b(19|20)\d{2}\b/);
+  return m ? m[0] : '';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Buscar URL de detalle por título
+// ══════════════════════════════════════════════════════════════════
+async function findDetailUrl(title, year) {
+  const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
+  const yearStr = String(year || '');
+
+  // ─── Estrategia 1: WordPress search (/?s=) ───────────────────
+  try {
+    const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
+    console.log(`[cuevana3] Search: ${searchUrl}`);
+    const { data: searchHtml } = await axios.get(searchUrl, {
+      timeout: 10000,
+      headers: getHeaders({ 'Referer': BASE + '/' }),
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    const $ = cheerio.load(searchHtml);
+    const candidates = [];
+
+    $('a').each((i, el) => {
+      const href = $(el).attr('href') || '';
+      // Cuevana3 usa /{id}/{slug} o /peliculas-online/{id}/{slug}/
+      if (!/^\/\d+\//.test(href) && !href.includes('/peliculas-online/')) return;
+      // Evitar categorías, tags, etc.
+      if (/\/category\/|\/tag\/|\/actor\/|\/director\/|\/genero/.test(href)) return;
+
+      const text = ($(el).text() + ' ' + ($(el).find('h1,h2,h3,.Title,.title').text() || '')).trim();
+      if (text.length < 3) return;
+
+      candidates.push({ href, text });
+    });
+
+    console.log(`[cuevana3] Candidatos: ${candidates.length}`);
+
+    // Buscar mejor match
+    let best = null;
+    let bestScore = 0;
+
+    for (const c of candidates) {
+      const candNorm = normalize(c.text);
+      const wordsMatched = titleWords.filter(w => candNorm.includes(w)).length;
+      const yearMatch = yearStr && c.text.includes(yearStr);
+      const score = wordsMatched + (yearMatch ? 3 : 0);
+
+      if (score > bestScore && wordsMatched >= Math.min(2, titleWords.length)) {
+        bestScore = score;
+        best = c;
+      }
+    }
+
+    if (best) {
+      const fullUrl = best.href.startsWith('http') ? best.href : BASE + best.href;
+      console.log(`[cuevana3] Match (${bestScore}pts): ${best.text.slice(0, 60)} → ${fullUrl}`);
+      return fullUrl;
+    }
+  } catch (e) {
+    console.warn('[cuevana3] Error en /?s=:', e.message);
+  }
+
+  // ─── Estrategia 2: wp-json API ───────────────────────────────
+  try {
+    const apiUrl = `${BASE}/wp-json/wp/v2/search?search=${encodeURIComponent(title)}&per_page=10`;
+    console.log(`[cuevana3] WP-API: ${apiUrl}`);
+    const { data } = await axios.get(apiUrl, {
+      timeout: 10000,
+      headers: getHeaders(),
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (!item.url) continue;
+        const itemNorm = normalize(item.title || '');
+        const wordsMatched = titleWords.filter(w => itemNorm.includes(w)).length;
+        if (wordsMatched >= Math.min(2, titleWords.length)) {
+          console.log(`[cuevana3] WP-API match: ${item.title} → ${item.url}`);
+          return item.url;
+        }
+      }
+    }
+  } catch (e) {
+    // WP-API puede estar deshabilitado, es normal
+  }
+
+  return null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Función principal
+// ══════════════════════════════════════════════════════════════════
 async function scrapeCuevana3(title, year, tmdbId, type = 'movie') {
   const found = {};
   if (!title) return found;
   console.log('[cuevana3] Buscando:', title, year || '');
 
-  let detailUrl = null;
-
-  // Si tenemos TMDB ID, intentar construir la URL directamente
-  // (Cuevana3 usa /{tmdb_id}/{slug})
-  if (tmdbId) {
-    const cleanId = String(tmdbId).replace(/\D/g, '');
-    const slug = title.toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-').trim();
-
-    const possibleUrls = [
-      `${BASE}/${cleanId}/${slug}`,
-      `${BASE}/${cleanId}/${slug}/`,
-    ];
-
-    for (const u of possibleUrls) {
-      try {
-        const r = await axios.head(u, { headers: getHeaders(), timeout: 5000, validateStatus: s => s < 400, maxRedirects: 5 });
-        if (r.status < 400) { detailUrl = u; break; }
-      } catch (_) {}
-    }
-  }
-
-  // Fallback: buscar por título
-  if (!detailUrl) {
-    try {
-      const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
-      const { data: searchHtml } = await axios.get(searchUrl, {
-        timeout: 10000,
-        headers: getHeaders(),
-        validateStatus: s => s >= 200 && s < 400,
-      });
-
-      const $ = cheerio.load(searchHtml);
-      const normalize = s => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-      const titleWords = normalize(title).split(' ').filter(w => w.length > 2);
-      const yearStr = String(year || '');
-
-      $('a').each((i, el) => {
-        if (detailUrl) return;
-        const href = $(el).attr('href') || '';
-        // Cuevana3 usa /{id}/{slug}
-        if (!/^\/\d+\//.test(href)) return;
-        const text = normalize($(el).text());
-        const matches = titleWords.filter(w => text.includes(w));
-        if (matches.length >= Math.min(2, titleWords.length)) {
-          if (!yearStr || href.includes(yearStr) || $(el).text().includes(yearStr) || !yearStr) {
-            detailUrl = href.startsWith('http') ? href : BASE + href;
-          }
-        }
-      });
-    } catch (e) {
-      console.warn('[cuevana3] Error búsqueda:', e.message);
-      return found;
-    }
-  }
+  // 1) Encontrar URL de detalle
+  const detailUrl = await findDetailUrl(title, year);
 
   if (!detailUrl) {
     console.log('[cuevana3] No encontró detalle');
@@ -128,6 +181,7 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie') {
   }
   console.log('[cuevana3] Detalle:', detailUrl);
 
+  // 2) Cargar página de detalle
   let detailHtml = '';
   try {
     const { data } = await axios.get(detailUrl, {
@@ -143,17 +197,22 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie') {
 
   const $d = cheerio.load(detailHtml);
 
-  // Extraer TODOS los iframes del contenedor .TPlayerTb
-  $d('.TPlayerTb iframe, iframe.no-you').each((i, el) => {
+  // 3) Extraer TODOS los iframes
+  $d('.TPlayerTb iframe, iframe.no-you, iframe[data-src]').each((i, el) => {
     const src = $d(el).attr('data-src') || $d(el).attr('src');
     if (!src) return;
     if (!src.startsWith('http')) return;
+    if (src === 'about:blank') return;
 
-    // Extraer el ID del contenedor padre (OptE11, OptE12, etc.)
-    const parentId = $d(el).parent().attr('id') || $d(el).closest('.TPlayerTb').attr('id') || '';
+    // Extraer ID del padre (OptE11, OptE12, etc.)
+    const parentId = $d(el).parent().attr('id')
+      || $d(el).closest('[id]').attr('id')
+      || $d(el).closest('.TPlayerTb').attr('id')
+      || '';
+
     const idMatch = parentId.match(/OptE(\d)(\d)/);
     let lang = 'latino';
-    let hostIndex = 0;
+    let hostIndex = i + 1;
 
     if (idMatch) {
       const langDigit = idMatch[1];
@@ -161,22 +220,20 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie') {
       lang = ID_LANG[langDigit] || 'latino';
     }
 
-    // Nombre del host
     const hostName = detectServerName(src);
-    if (hostName === 'Servidor') return; // Ignorar hosts desconocidos
+    if (hostName === 'Servidor') return;
 
-    // Clave única: host_lang_idx para evitar colisiones entre idiomas
-    const key = `${hostName.toLowerCase()}`;
-
+    const key = hostName.toLowerCase();
     if (!found[lang]) found[lang] = {};
-    // Si ya existe ese host en ese idioma, agregar índice
+
     let finalKey = key;
     if (found[lang][finalKey]) {
       finalKey = `${key}_${hostIndex}`;
     }
+
     if (!found[lang][finalKey]) {
       found[lang][finalKey] = src;
-      console.log(`[cuevana3] ✅ ${lang}/${finalKey}: ${src.slice(0, 80)}`);
+      console.log(`[cuevana3] ✅ ${lang}/${finalKey}: ${src.slice(0, 90)}`);
     }
   });
 
