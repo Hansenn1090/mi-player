@@ -25,12 +25,13 @@ const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc']);
 // Los no listados van al final por orden alfabético.
 const PROVIDER_PRIORITY = [
   'pelispledia',      // 1º → Vimeos (HLS)
-  'cuevana3',          // 2º → NUEVO (12 servidores: Dood/VOE/VidHide/StreamWish × 3 idiomas)
-  'pelispediais',     // 3º → NUEVO (3 opciones: Lat/Cast/Sub)
-  'poseidonhd2',       // 4º → HLS hosts
-  'cuevana',          // 5º → NUEVO
-  'locopelis',        // 6º → NUEVO
-  'facilitoplay',      // 7º → iframe limpio
+  'pelisplay',         // 2º → NUEVO (base64 → Nupload/VOE)
+  'cuevana3',          // 3º → NUEVO (12 servidores: Dood/VOE/VidHide/StreamWish × 3 idiomas)
+  'pelispediais',     // 4º → NUEVO (3 opciones: Lat/Cast/Sub)
+  'poseidonhd2',       // 5º → HLS hosts
+  'cuevana',          // 6º → base64 (Vimeos/StreamWish/VidHide/etc)
+  'locopelis',        // 7º → NUEVO
+  'facilitoplay',      // 8º → iframe limpio
   'playlatinsrc',      // penúltimo → iframe
   'unlimplay',         // último → iframe
 ];
