@@ -25,7 +25,7 @@ const DIRECT_PROVIDERS = new Set(['unlimplay', 'playlatinsrc']);
 // Los no listados van al final por orden alfabético.
 const PROVIDER_PRIORITY = [
   'pelispledia',       // 1º → Vimeos (HLS)
-  'pelispedia-is',     // 2º → NUEVO (3 opciones: Lat/Cast/Sub)
+  'pelispediais',     // 2º → NUEVO (3 opciones: Lat/Cast/Sub)
   'poseidonhd2',       // 3º → HLS hosts
   'cuevana',          // 4º → NUEVO
   'locopelis',        // 5º → NUEVO
