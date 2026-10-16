@@ -120,7 +120,7 @@
                 <svg class="w-3.5 h-3.5 fill-current text-white check-icon" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
                 <span>🇲🇽 Español Latino</span>
               </button>
-              <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-audio="castellano" type="button">
+              <button class="tv-btn-normal px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium flex-1 flex items-center justify-center space-x-1.5 transition" data-audio="español" type="button">
                 <svg class="w-3.5 h-3.5 fill-current text-white check-icon hidden" viewBox="0 0 20 20"><path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"/></svg>
                 <span>🇪🇸 Castellano</span>
               </button>
@@ -310,7 +310,7 @@ const API_BASE = 'https://mi-player-api.onrender.com';
 const PROXY_BASE = '';
 
 // ─── Hosts que se extraen con HLS (control total) → van PRIMERO ─
-const HLS_HOSTS = /vimeos|streamwish|filelions|vidhide|vidmoly|voe|filemoon|doodstream|mixdrop|streamtape|okru|filelion|embedwish|hglink|flaswish|morencius|minochinos|callistanise|uqload|powvideo|streamplay|fastream|mp4upload|streamsb|streamhide|netu|vinovo|embedgram|vidspeed|nupload/i;
+const HLS_HOSTS = /vimeos|vimeo|streamwish|filelions|vidhide|vidmoly|voe|filemoon|doodstream|mixdrop|streamtape|okru|filelion|embedwish|hglink|flaswish|morencius|minochinos|callistanise|uqload|powvideo|streamplay|fastream|mp4upload|streamsb|streamhide|netu|vinovo|embedgram|vidspeed|nupload/i;
 
 // ─── Hosts que SIEMPRE son iframe → van al FINAL ────────────────
 const IFRAME_HOSTS = /playlatinsrc|unlimplay/i;
@@ -400,34 +400,48 @@ function triggerActionFlash(iconMarkup) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// ORDEN DE SERVIDORES: HLS primero → iframes al final
+// ✅ FIX PRINCIPAL: Acepta tanto string como { url, referer, server }
 // ══════════════════════════════════════════════════════════════════════════
+function normalizeEntry(entry, fallbackKey) {
+  if (entry && typeof entry === 'object' && typeof entry.url === 'string') {
+    return {
+      url: entry.url,
+      referer: entry.referer || null,
+      server: entry.server || fallbackKey,
+    };
+  }
+  if (typeof entry === 'string') {
+    return { url: entry, referer: null, server: fallbackKey };
+  }
+  return null;
+}
+
 function buildServersFlat(servers) {
   const all = [];
 
   for (const [lang, srvMap] of Object.entries(servers || {})) {
     if (!srvMap || typeof srvMap !== 'object') continue;
-    for (const [hostKey, url] of Object.entries(srvMap)) {
-      if (!url || typeof url !== 'string') continue;
+    for (const [hostKey, rawEntry] of Object.entries(srvMap)) {
+      const entry = normalizeEntry(rawEntry, hostKey);
+      if (!entry) continue;
 
-      // Determinar prioridad
+      const { url, referer, server } = entry;
+
       let priority;
-      if (IFRAME_HOSTS.test(url) || IFRAME_HOSTS.test(hostKey)) {
-        priority = 3; // Iframes puros → AL FINAL
-      } else if (HLS_HOSTS.test(url) || HLS_HOSTS.test(hostKey)) {
-        priority = 0; // HLS extraíble → PRIMERO
+      if (IFRAME_HOSTS.test(url) || IFRAME_HOSTS.test(hostKey) || IFRAME_HOSTS.test(server)) {
+        priority = 3;
+      } else if (HLS_HOSTS.test(url) || HLS_HOSTS.test(hostKey) || HLS_HOSTS.test(server)) {
+        priority = 0;
       } else {
-        priority = 2; // Otros → en medio
+        priority = 2;
       }
 
-      all.push({ host: hostKey, lang, url, priority });
+      all.push({ host: hostKey, lang, url, referer, server, priority });
     }
   }
 
-  // Ordenar por prioridad (0 primero, 3 último)
   all.sort((a, b) => a.priority - b.priority);
 
-  // Renumerar correlativamente
   const flat = [];
   let n = 0;
   for (const srv of all) {
@@ -486,7 +500,9 @@ function mountHls(url, referer) {
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideoEvents(vid);
-  const finalUrl = PROXY_BASE ? (PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(referer || url)) : url;
+  const finalUrl = PROXY_BASE
+    ? (PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(referer || url))
+    : url;
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     const hls = new Hls({ maxBufferLength: 30, startLevel: -1, enableWorker: true });
     _currentHls = hls;
@@ -511,13 +527,15 @@ function mountMp4(url) {
   vid.src = url; vid.load();
   vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
 }
+
+// ✅ FIX: ahora usa referrerpolicy="unsafe-url" para que VOE/StreamWish no devuelvan 403
 function mountIframe(url) {
   const iframe = document.createElement('iframe');
   iframe.className = 'w-full h-full absolute inset-0 border-0';
   iframe.allow = 'autoplay; fullscreen; encrypted-media; picture-in-picture';
   iframe.allowFullscreen = true;
   iframe.setAttribute('allowfullscreen', '');
-  iframe.setAttribute('referrerpolicy', 'no-referrer');
+  iframe.setAttribute('referrerpolicy', 'unsafe-url');
   iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-downloads');
   iframe.src = url;
   els.stage.appendChild(iframe);
@@ -525,13 +543,15 @@ function mountIframe(url) {
   state.duration = 0; state.currentTime = 0;
   updateScrubberUI();
 }
-async function extractFromBackend(embedUrl) {
+async function extractFromBackend(embedUrl, referer) {
   try {
-    const r = await fetch(`${API_BASE}/api/extract?url=${encodeURIComponent(embedUrl)}`);
+    const params = new URLSearchParams({ url: embedUrl });
+    if (referer) params.append('referer', referer);
+    const r = await fetch(`${API_BASE}/api/extract?${params.toString()}`);
     if (!r.ok) return null;
     const data = await r.json();
     if (data.error || !data.stream) return null;
-    return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer };
+    return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer || referer };
   } catch (e) { return null; }
 }
 async function selectServer(num) {
@@ -548,7 +568,9 @@ async function selectServer(num) {
   teardown();
   showToast(`Cargando Server ${num}…`);
 
-  // ─── URLs que NUNCA deben extraerse (siempre iframe) ─────────
+  // ✅ FIX: usar el referer del server si existe
+  const ref = srv.referer || srv.url;
+
   const ALWAYS_IFRAME = /playlatinsrc\.co|unlimplay\.com/i;
   if (ALWAYS_IFRAME.test(srv.url)) {
     console.log(`[player] Server ${num} → iframe directo (sin extracción)`);
@@ -556,13 +578,11 @@ async function selectServer(num) {
     return;
   }
 
-  // ─── Detección directa por URL ──────────────────────────────
   const byUrl = detectByUrl(srv.url);
-  if (byUrl === 'hls') { mountHls(srv.url, srv.url); return; }
+  if (byUrl === 'hls') { mountHls(srv.url, ref); return; }
   if (byUrl === 'mp4') { mountMp4(srv.url); return; }
 
-  // ─── Intento de extracción con el backend ───────────────────
-  const extracted = await extractFromBackend(srv.url);
+  const extracted = await extractFromBackend(srv.url, ref);
   if (extracted && extracted.stream) {
     if (extracted.kind === 'hls') mountHls(extracted.stream, extracted.referer);
     else if (extracted.kind === 'mp4') mountMp4(extracted.stream);
@@ -570,7 +590,6 @@ async function selectServer(num) {
     return;
   }
 
-  // ─── Fallback: iframe directo ───────────────────────────────
   mountIframe(srv.url);
 }
 async function loadMovie(id, type) {
@@ -670,6 +689,8 @@ document.querySelectorAll('#group-formato-pantalla button').forEach(btn => {
     applyAspectRatio(btn.dataset.aspect);
   });
 });
+
+// ✅ FIX: data-audio="español" ahora coincide con la clave del backend
 document.querySelectorAll('#group-audio-options button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#group-audio-options button').forEach(b => { b.classList.remove('tv-btn-active'); const c = b.querySelector('.check-icon'); if (c) c.classList.add('hidden'); });
@@ -681,7 +702,7 @@ document.querySelectorAll('#group-audio-options button').forEach(btn => {
       renderServers(); selectServer(1);
     } else { showToast(`No hay servidores en ${lang}`); return; }
     if (lang === 'latino') els.badgeActiveAudio.textContent = '🇲🇽 Español Latino';
-    else if (lang === 'castellano') els.badgeActiveAudio.textContent = '🇪🇸 Español Castellano';
+    else if (lang === 'español') els.badgeActiveAudio.textContent = '🇪🇸 Español Castellano';
     else if (lang === 'subtitulado') els.badgeActiveAudio.textContent = '📝 Subtitulado';
   });
 });
