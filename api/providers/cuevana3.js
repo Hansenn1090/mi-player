@@ -9,6 +9,17 @@ const BASE = 'https://www1.cuevana3.now';
 
 const ID_LANG = { '1': 'latino', '2': 'subtitulado', '3': 'castellano' };
 
+// ══════════════════════════════════════════════════════════════════
+// Hosts problemáticos desde Render (filtrar antes de devolverlos)
+//
+//   • uqload       → bloquea datacenters (Cloudflare 403)
+//   • streamtape   → videos borrados con frecuencia (404)
+//   • doodstream   → Cloudflare 403 desde datacenter
+//   • watchsb      → host caído desde 2024
+//   • streamlare   → host caído / API cambiada
+// ══════════════════════════════════════════════════════════════════
+const DEAD_HOSTS = /uqload|ugload|streamtape|stape|doodstream|dood\.(la|sh|so|pm|to|stream)|d000d|watchsb|streamlare/i;
+
 function getHeaders(extra = {}) {
   return {
     'User-Agent': UA,
@@ -45,10 +56,9 @@ function detectServerName(url) {
   const u = (url || '').toLowerCase();
   if (/voe\.(sx|de|bar|net|to)/i.test(u)) return 'VOE';
   if (/player\.vimeo|vimeo\.com|vimeos/i.test(u)) return 'Vimeo';
-  if (/streamwish|embedwish|hglink|flaswish|wishfast/i.test(u)) return 'StreamWish';
+  if (/streamwish|embedwish|hglink|flaswish|wishfast|playnixes|niramirus/i.test(u)) return 'StreamWish';
   if (/vidhide|morencius|minochinos|callistanise|hgcloud|filelions/i.test(u)) return 'VidHide';
   if (/filemoon|moonplayer|byse/i.test(u)) return 'FileMoon';
-  // Doodstream: acepta todos los dominios (incluyendo el actual doodstream.com)
   if (/doodstream|dood\.(la|sh|so|pm|to|wf)|d000d/i.test(u)) return 'DoodStream';
   if (/fembed/i.test(u)) return 'Fembed';
   if (/uqload|ugload/i.test(u)) return 'Uqload';
@@ -164,15 +174,23 @@ function extractServers($d, pageUrl, langFallback) {
       src = normalizeUrl(src);
 
       // ─── Filtro 1: descartar URLs sin ID de video ───
-      // Ej: https://dood.to/e/  (sin ID) → no reproducible
       if (/\/(e|v|d|f)\/?$/i.test(src)) {
         console.warn(`[cuevana3] URL sin ID descartada: ${src}`);
         return;
       }
 
-      // ─── Filtro 2: YouTube suele ser el trailer, no la película ───
+      // ─── Filtro 2: YouTube suele ser el trailer ───
       if (/youtube\.com|youtu\.be/i.test(src)) {
         console.log(`[cuevana3] YouTube ignorado (trailer): ${src.slice(0, 60)}`);
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // ─── Filtro 3: hosts caídos o bloqueados desde datacenter ───
+      // ═══════════════════════════════════════════════════════════
+      if (DEAD_HOSTS.test(src)) {
+        const name = detectServerName(src) || 'unknown';
+        console.log(`[cuevana3] ${name} ignorado (no reproducible desde Render): ${src.slice(0, 60)}`);
         return;
       }
 
