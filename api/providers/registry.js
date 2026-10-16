@@ -25,16 +25,13 @@ const SKIP_PROVIDERS = new Set([
   'locopelis',
   'poseidonhd2',
   'pelisplushd',
-]);
-
-const DIRECT_PROVIDERS = new Set([
-  'unlimplay',
-  'playlatinsrc',
-  'facilitoplay',
+  'cuevana',        // ← dominio cuevana.sc muerto (ENOTFOUND)
+  'Cuevana',        // ← duplicado con mayúscula
+  'cinemaos',       // ← no usado
 ]);
 
 const MULTILANG_PROVIDERS = new Set([
-  'cuevana3gs', 'cuevana3', 'cuevana',
+  'cuevana3gs', 'cuevana3sc', 'cuevana3',
   'pelispediais', 'pelisplay',
   'lamovie', 'pelispledia',
 ]);
@@ -43,8 +40,8 @@ const PROVIDER_PRIORITY = [
   'pelispledia',
   'lamovie',
   'cuevana3gs',
+  'cuevana3sc',     // ← NUEVO
   'cuevana3',
-  'cuevana',
   'pelisplay',
   'pelispediais',
   'facilitoplay',
