@@ -1,76 +1,32 @@
 // api/providers/cuevana3.js
 'use strict';
 
-/**
- * Cuevana3.now — Provider multi-idioma (películas + series)
- *
- * ⚠️ El sitio NO es WordPress real:
- *    - Assets en /static/wp-content/... (no /wp-content/...)
- *    - Todos los <article> tienen post-7544 (ID fijo de template)
- *    - No expone /wp-json/ usable
- *    → La búsqueda se hace por /?s=<query>
- *
- * Patrones de URL reales:
- *    Película:  /<id>/<slug>            → /23946/terminator-...
- *               /<id>/<slug>-<tmdb>     → /23612/la-odisea-1368337
- *    Serie:     /serie/<slug>           → /serie/sacrifice
- *    Episodio:  /episodio/<slug>-<SxE>  → /episodio/sacrifice-2x3
- *
- * Iframes: id del wrapper = OptE{X}{Y}
- *    OptE1Y → Latino
- *    OptE2Y → Subtitulado
- *    OptE3Y → Castellano
- *
- * RETORNO:
- *    { latino: { <serverKey>: { url, referer, server } }, ... }
- *    ⚠️ CAMBIO: antes devolvía string, ahora objeto con referer+server.
- */
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// ══════════════════════════════════════════════════════════════════
-// Configuración
-// ══════════════════════════════════════════════════════════════════
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-const BASE = 'https://www1.cuevana3.now';
+const BASE = 'https://cuevana3.no';
 
-const ID_LANG = {
-  '1': 'latino',
-  '2': 'subtitulado',
-  '3': 'castellano',
-};
+const ID_LANG = { '1': 'latino', '2': 'subtitulado', '3': 'castellano' };
 
 function getHeaders(extra = {}) {
   return {
     'User-Agent': UA,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'same-origin',
     'Upgrade-Insecure-Requests': '1',
     ...extra,
   };
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Utilidades de texto
-// ══════════════════════════════════════════════════════════════════
-/**
- * Corrige mojibake típico: "Ã¡" → "á", "Ã³" → "ó", etc.
- * Solo actúa si detecta el patrón; si no, devuelve el original.
- */
 function fixMojibake(s) {
   if (!s || typeof s !== 'string') return s;
   if (!/Ã[\x80-\xBF]|Â[\x80-\xBF]|â€/.test(s)) return s;
   try {
     const fixed = Buffer.from(s, 'latin1').toString('utf8');
-    if (fixed.includes('\uFFFD')) return s; // decodificación inválida
+    if (fixed.includes('\uFFFD')) return s;
     return fixed;
-  } catch {
-    return s;
-  }
+  } catch { return s; }
 }
 
 function normalize(s) {
@@ -85,9 +41,6 @@ function isSeriesType(type) {
   return ['tv', 'series', 'serie', 'serials'].includes(String(type || '').toLowerCase());
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Detección y normalización de servidores
-// ══════════════════════════════════════════════════════════════════
 function detectServerName(url) {
   const u = (url || '').toLowerCase();
   if (/voe\.(sx|de|bar|net|to)/i.test(u)) return 'VOE';
@@ -102,53 +55,36 @@ function detectServerName(url) {
   if (/mixdrop|mxdrop/i.test(u)) return 'MixDrop';
   if (/ok\.ru|okru/i.test(u)) return 'OkRu';
   if (/vidmoly/i.test(u)) return 'Vidmoly';
-  if (/powvideo/i.test(u)) return 'Powvideo';
-  if (/streamplay/i.test(u)) return 'Streamplay';
-  if (/netu|waaw|hqq/i.test(u)) return 'Netu';
-  if (/fastream/i.test(u)) return 'Fastream';
-  // Fallback: hostname como nombre en vez de descartar
   try {
     const host = new URL(u).hostname.replace(/^www\./, '').split('.')[0];
     return host || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function normalizeUrl(url) {
   if (!url) return url;
   let u = String(url).trim();
   if (u.startsWith('//')) u = 'https:' + u;
-  u = u.replace(/\/\/ugload\./i, '//uqload.'); // typo → host real
+  u = u.replace(/\/\/ugload\./i, '//uqload.');
   return u;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Fetch helper
-// ══════════════════════════════════════════════════════════════════
 async function fetchHtml(url, referer) {
   const { data } = await axios.get(url, {
     timeout: 12000,
     headers: getHeaders({ Referer: referer || BASE + '/' }),
     responseType: 'text',
-    transformResponse: [(d) => d], // no parsear JSON
+    transformResponse: [(d) => d],
     validateStatus: (s) => s >= 200 && s < 400,
   });
   return data;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Búsqueda del detalle
-// ══════════════════════════════════════════════════════════════════
 async function findDetailUrl(title, year, type) {
   const isSeries = isSeriesType(type);
   const titleWords = normalize(title).split(' ').filter((w) => w.length > 2);
   const yearStr = String(year || '');
-
-  // Patrón de URL según tipo
-  const urlPattern = isSeries
-    ? /^\/serie\/[^\/]+$/
-    : /^\/\d+\/[^\/]+$/;
+  const urlPattern = isSeries ? /^\/serie\/[^\/]+$/ : /^\/\d+\/[^\/]+$/;
 
   const searchUrl = `${BASE}/?s=${encodeURIComponent(title)}`;
   console.log(`[cuevana3] Search: ${searchUrl}`);
@@ -164,7 +100,6 @@ async function findDetailUrl(title, year, type) {
   const $ = cheerio.load(searchHtml);
   const candidates = [];
 
-  // Estructura real: <div class="TPost"><a href><h2 class="Title">…</h2></a>…
   $('div.TPost a[href]').each((i, el) => {
     const href = $(el).attr('href') || '';
     if (/\/category\/|\/tag\/|\/actor\/|\/director\/|\/genero/.test(href)) return;
@@ -195,7 +130,6 @@ async function findDetailUrl(title, year, type) {
   for (const c of candidates) {
     const candNorm = normalize(c.title);
     const slugNorm = normalize(c.slug.replace(/-/g, ' '));
-
     const wordsInTitle = titleWords.filter((w) => candNorm.includes(w)).length;
     const wordsInSlug = titleWords.filter((w) => slugNorm.includes(w)).length;
     const wordsMatched = Math.max(wordsInTitle, wordsInSlug);
@@ -203,13 +137,8 @@ async function findDetailUrl(title, year, type) {
     const yearMatch = yearStr && c.year && c.year.includes(yearStr);
     const score = wordsMatched + (yearMatch ? 3 : 0);
 
-    const minWords = Math.min(2, titleWords.length);
-    if (wordsMatched < minWords) continue;
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = c;
-    }
+    if (wordsMatched < Math.min(2, titleWords.length)) continue;
+    if (score > bestScore) { bestScore = score; best = c; }
   }
 
   if (best) {
@@ -222,9 +151,6 @@ async function findDetailUrl(title, year, type) {
   return null;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Extracción de servers desde una página con .TPlayerTb
-// ══════════════════════════════════════════════════════════════════
 function extractServers($d, pageUrl, langFallback) {
   const found = {};
 
@@ -234,7 +160,6 @@ function extractServers($d, pageUrl, langFallback) {
       if (!src || !src.startsWith('http') || src === 'about:blank') return;
       src = normalizeUrl(src);
 
-      // El id OptE11 vive en el wrapper [id^="OptE"] más cercano
       const $optWrap = $d(el).closest('[id^="OptE"]');
       const parentId = $optWrap.attr('id') || '';
       const idMatch = parentId.match(/OptE(\d)(\d)/);
@@ -251,10 +176,8 @@ function extractServers($d, pageUrl, langFallback) {
 
       if (!found[detectedLang]) found[detectedLang] = {};
 
-      // Desambiguador incremental (no colisiona si dos iframes tienen el mismo host)
       let key = hostName.toLowerCase();
-      let n = 2;
-      let finalKey = key;
+      let n = 2, finalKey = key;
       while (found[detectedLang][finalKey]) finalKey = `${key}_${n++}`;
 
       found[detectedLang][finalKey] = {
@@ -271,9 +194,6 @@ function extractServers($d, pageUrl, langFallback) {
   return found;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Episodios (solo series)
-// ══════════════════════════════════════════════════════════════════
 function extractEpisodeLinks($d) {
   const eps = [];
   $d('a[href*="/episodio/"]').each((i, el) => {
@@ -285,9 +205,6 @@ function extractEpisodeLinks($d) {
   return eps;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Función principal
-// ══════════════════════════════════════════════════════════════════
 async function scrapeCuevana3(title, year, tmdbId, type = 'movie', lang = 'latino') {
   const found = {};
   if (!title) return found;
@@ -295,15 +212,10 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie', lang = 'latin
   const isSeries = isSeriesType(type);
   console.log(`[cuevana3] Buscando: "${title}" (${year}) [${isSeries ? 'serie' : 'película'}]`);
 
-  // 1) Encontrar URL de detalle
   const detailUrl = await findDetailUrl(title, year, type);
-  if (!detailUrl) {
-    console.log('[cuevana3] No encontró detalle');
-    return found;
-  }
+  if (!detailUrl) { console.log('[cuevana3] No encontró detalle'); return found; }
   console.log('[cuevana3] Detalle:', detailUrl);
 
-  // 2) Cargar detalle
   let detailHtml;
   try {
     detailHtml = await fetchHtml(detailUrl);
@@ -313,15 +225,11 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie', lang = 'latin
   }
 
   const $d = cheerio.load(detailHtml);
-
-  // 3) Extraer servers de la propia página (película o serie con player directo)
   Object.assign(found, extractServers($d, detailUrl, lang));
 
-  // 4) Si es serie y no hay servers directos → cargar el primer episodio
   if (isSeries && Object.keys(found).length === 0) {
     const episodes = extractEpisodeLinks($d);
-    console.log(`[cuevana3] Episodios encontrados: ${episodes.length}`);
-
+    console.log(`[cuevana3] Episodios: ${episodes.length}`);
     if (episodes.length > 0) {
       const epUrl = episodes[0];
       try {
@@ -336,13 +244,10 @@ async function scrapeCuevana3(title, year, tmdbId, type = 'movie', lang = 'latin
   }
 
   const total = Object.values(found).reduce((a, s) => a + Object.keys(s).length, 0);
-  console.log(`[cuevana3] Total servers: ${total}`);
+  console.log(`[cuevana3] Total: ${total}`);
   return found;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Export
-// ══════════════════════════════════════════════════════════════════
 module.exports = {
   name: 'cuevana3',
   scrapeCuevana3,
