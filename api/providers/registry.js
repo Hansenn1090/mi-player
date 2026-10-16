@@ -16,7 +16,7 @@ try {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// CONFIG
+// CONFIG — declarado ANTES de cualquier uso
 // ══════════════════════════════════════════════════════════════════
 const SKIP_PROVIDERS = new Set([
   'pelixplay',
@@ -25,28 +25,37 @@ const SKIP_PROVIDERS = new Set([
   'locopelis',
   'poseidonhd2',
   'pelisplushd',
-  'cuevana',        // ← dominio cuevana.sc muerto (ENOTFOUND)
-  'Cuevana',        // ← duplicado con mayúscula
-  'cinemaos',       // ← no usado
+  'cuevana',        // dominio cuevana.sc muerto
+  'Cuevana',        // duplicado con mayúscula
+  'cinemaos',       // no usado
+  'pelispledia',    // no existe (es pelispedia con i)
+]);
+
+const DIRECT_PROVIDERS = new Set([
+  'unlimplay',
+  'playlatinsrc',
+  'facilitoplay',
 ]);
 
 const MULTILANG_PROVIDERS = new Set([
-  'cuevana3gs', 'cuevana3sc', 'cuevana3',
-  'pelispediais', 'pelisplay',
-  'lamovie', 'pelispledia',
+  'cuevana3gs',
+  'cuevana3sc',
+  'cuevana3',
+  'pelispediais',
+  'pelisplay',
+  'lamovie',
 ]);
 
 const PROVIDER_PRIORITY = [
-  'pelispledia',
   'lamovie',
   'cuevana3gs',
-  'cuevana3sc',     // ← NUEVO
+  'cuevana3sc',
   'cuevana3',
   'pelisplay',
   'pelispediais',
-  'facilitoplay',
   'playlatinsrc',
   'unlimplay',
+  'pelispedia',
 ];
 
 const KNOWN_LANGS = new Set([
@@ -149,7 +158,7 @@ function coerceEntry(entry, srvName, providerName) {
 function normalizeResult(result, providerName, byLang, forceLang = null) {
   if (!result) return;
 
-  // ── String plano ─────────────────────────────────────────────
+  // String plano
   if (typeof result === 'string') {
     const lang = canonicalLang(forceLang || 'latino');
     if (!byLang[lang]) byLang[lang] = {};
@@ -157,7 +166,7 @@ function normalizeResult(result, providerName, byLang, forceLang = null) {
     return;
   }
 
-  // ── Array ────────────────────────────────────────────────────
+  // Array
   if (Array.isArray(result)) {
     result.forEach((item, i) => {
       const key = i === 0 ? providerName : `${providerName}_${i + 1}`;
@@ -175,13 +184,11 @@ function normalizeResult(result, providerName, byLang, forceLang = null) {
   const keys = Object.keys(result);
   const hasLangKeys = keys.some(k => KNOWN_LANGS.has(k.toLowerCase()));
 
-  // ── Objeto con idiomas: { latino: {...}, castellano: {...} } ─
   if (hasLangKeys) {
     for (const [rawLang, servers] of Object.entries(result)) {
       const lang = canonicalLang(rawLang);
       if (!byLang[lang]) byLang[lang] = {};
 
-      // servers puede ser string, {url}, array, u objeto {srvName: url}
       if (typeof servers === 'string'
           || (servers && typeof servers === 'object' && typeof servers.url === 'string')) {
         const e = coerceEntry(servers, providerName, providerName);
@@ -202,7 +209,7 @@ function normalizeResult(result, providerName, byLang, forceLang = null) {
     return;
   }
 
-  // ── Objeto plano sin idiomas: { srvName: url } ───────────────
+  // Objeto plano sin idiomas
   const lang = canonicalLang(forceLang || 'latino');
   if (!byLang[lang]) byLang[lang] = {};
   for (const [srvName, entry] of Object.entries(result)) {
@@ -212,13 +219,13 @@ function normalizeResult(result, providerName, byLang, forceLang = null) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// FUNCIÓN PRINCIPAL (async, aquí SÍ se permite await)
+// FUNCIÓN PRINCIPAL
 // ══════════════════════════════════════════════════════════════════
 async function getSourcesFromProviders(type, id) {
   const byLang = { latino: {}, 'español': {}, subtitulado: {} };
   const t0 = Date.now();
 
-  // 1) Resolver título/año vía TMDB
+  // 1) TMDB
   let title = '', year = '';
   if (tmdb && typeof tmdb.getMediaInfo === 'function') {
     try {
@@ -236,7 +243,7 @@ async function getSourcesFromProviders(type, id) {
     return {};
   }
 
-  // 2) Loop secuencial sobre providers (con fast-path multi-idioma)
+  // 2) Loop sobre providers
   for (const file of PROVIDER_FILES) {
     const provider = safeRequire(file);
     if (!provider) continue;
@@ -261,7 +268,7 @@ async function getSourcesFromProviders(type, id) {
         console.log(`[registry] ▶ ${file} (multi-idioma)`);
         const result = await withTimeout(
           fn(title, year, id, type, 'latino'),
-          12000,
+          15000,
           file
         );
         normalizeResult(result, providerName, byLang);
@@ -298,7 +305,7 @@ async function getSourcesFromProviders(type, id) {
   const elapsed = Date.now() - t0;
   const total = Object.values(byLang).reduce((s, l) => s + Object.keys(l).length, 0);
   console.log(`[registry] ⏱️ ${elapsed}ms — ${total} servidores totales`);
-  console.log('[registry] Resultado:', JSON.stringify(byLang).slice(0, 600));
+  console.log('[registry] Resultado:', JSON.stringify(byLang).slice(0, 800));
 
   return byLang;
 }
