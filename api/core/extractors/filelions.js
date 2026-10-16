@@ -6,11 +6,11 @@ const puppeteer = require('puppeteer');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 // ══════════════════════════════════════════════════════════════════════════
-// Singleton: reutiliza el navegador entre requests para no saturar Render
+// Singleton del navegador (reutiliza entre requests)
 // ══════════════════════════════════════════════════════════════════════════
 let _browser = null;
 let _idleTimer = null;
-const IDLE_TIMEOUT = 60 * 1000; // cierra el browser si nadie lo usa en 60s
+const IDLE_TIMEOUT = 60 * 1000;
 
 async function getBrowser() {
   if (_browser && _browser.isConnected()) {
@@ -26,7 +26,6 @@ async function getBrowser() {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
-      '--disable-web-security',
       '--window-size=1920,1080',
       '--lang=es-ES,es',
       '--user-agent=' + UA,
@@ -55,21 +54,21 @@ async function extractFileLions(embedUrl) {
 
   console.log('[filelions] Extrayendo (Puppeteer):', embedUrl.slice(0, 90));
 
-  let browser = null;
   let page = null;
+  let m3u8Captured = null;
+  let mp4Captured = null;
 
   try {
-    browser = await getBrowser();
+    const browser = await getBrowser();
     page = await browser.newPage();
 
-    // ─── Anti-detección ────────────────────────────────────────────
+    // ─── Anti-detección ──────────────────────────────────────────
     await page.setUserAgent(UA);
     await page.setViewport({ width: 1920, height: 1080 });
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
     });
 
-    // Ocultar navigator.webdriver (Cloudflare lo chequea)
     await page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
       Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en'] });
@@ -77,124 +76,133 @@ async function extractFileLions(embedUrl) {
       window.chrome = { runtime: {} };
     });
 
-    // ─── Intercepción de red: capturamos el m3u8 cuando el player lo pida ───
-    let m3u8Captured = null;
+    // ─── Intercepción de red ─────────────────────────────────────
     page.on('response', (response) => {
       const url = response.url();
-      if (!m3u8Captured && /\.m3u8/i.test(url)) {
+      if (!m3u8Captured && /\.m3u8(\?|$)/i.test(url)) {
         m3u8Captured = url;
-        console.log('[filelions] 📡 m3u8 detectado en red:', url.slice(0, 130));
+        console.log('[filelions] 📡 m3u8 (response):', url.slice(0, 130));
+      }
+      if (!mp4Captured && /\.mp4(\?|$)/i.test(url)) {
+        mp4Captured = url;
+        console.log('[filelions] 📡 mp4 (response):', url.slice(0, 130));
       }
     });
 
-    // También interceptar peticiones (por si es un POST o el URL viene codificado)
     page.on('request', (request) => {
       const url = request.url();
-      if (!m3u8Captured && /\.m3u8/i.test(url)) {
+      if (!m3u8Captured && /\.m3u8(\?|$)/i.test(url)) {
         m3u8Captured = url;
-        console.log('[filelions] 📡 m3u8 detectado en request:', url.slice(0, 130));
+        console.log('[filelions] 📡 m3u8 (request):', url.slice(0, 130));
       }
     });
 
-    // ─── Navegar y esperar a que Cloudflare resuelva ───
+    // ─── Navegar ─────────────────────────────────────────────────
     console.log('[filelions] Navegando...');
     await page.goto(embedUrl, {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
 
-    // Esperar a que el challenge se resuelva (Cloudflare tarda 5-10s)
-    // Estrategia: esperar a que aparezca un elemento del player o timeout
+    // ─── Esperar a que Cloudflare resuelva ───────────────────────
     try {
       await page.waitForFunction(
         () => {
           const html = document.documentElement.innerHTML;
-          // Si ya no está el texto del challenge, salimos
-          return !/just a moment|checking your browser|cf-browser-verification/i.test(html);
+          return !/just a moment|checking your browser|cf-browser-verification|cf-challenge/i.test(html);
         },
         { timeout: 15000, polling: 500 }
       );
       console.log('[filelions] Challenge resuelto');
     } catch (_) {
-      console.warn('[filelions] Timeout esperando challenge — continuando igual');
+      console.warn('[filelions] Timeout esperando challenge — continuando');
     }
 
-    // ─── Esperar el m3u8 (hasta 10s) ───
-    const waitStart = Date.now();
-    while (!m3u8Captured && Date.now() - waitStart < 10000) {
+    // ─── Esperar el m3u8 hasta 15s ───────────────────────────────
+    const start = Date.now();
+    while (!m3u8Captured && !mp4Captured && Date.now() - start < 15000) {
       await new Promise(r => setTimeout(r, 300));
     }
 
-    // ─── Fallback 1: buscar en el DOM ───
-    if (!m3u8Captured) {
-      m3u8Captured = await page.evaluate(() => {
-        const html = document.documentElement.innerHTML;
-        const normalized = html.replace(/\\\//g, '/');
-        const patterns = [
-          /https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/i,
-          /["']file["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
-          /["']src["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
-        ];
-        for (const re of patterns) {
-          const m = normalized.match(re);
-          if (m) return m[1] || m[0];
-        }
-        return null;
-      });
+    // ─── Fallback: parsear el packer desde el DOM ────────────────
+    if (!m3u8Captured && !mp4Captured) {
+      console.log('[filelions] Buscando en scripts del DOM...');
 
-      if (m3u8Captured) {
-        console.log('[filelions] 📄 m3u8 en DOM:', m3u8Captured.slice(0, 130));
-      }
-    }
-
-    // ─── Fallback 2: buscar en todos los scripts de la página ───
-    if (!m3u8Captured) {
-      m3u8Captured = await page.evaluate(() => {
+      const found = await page.evaluate(() => {
         const scripts = Array.from(document.querySelectorAll('script'));
+
         for (const s of scripts) {
-          const content = s.textContent || '';
-          const normalized = content.replace(/\\\//g, '/');
-          const m = normalized.match(/https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/i);
-          if (m) return m[0];
+          const txt = s.textContent || '';
+          if (!txt.includes('eval(function(p,a,c,k,e,d)')) continue;
+
+          try {
+            // Extraer el payload del packer
+            const m = txt.match(
+              /eval\(function\(p,a,c,k,e,[a-z]\)\{[\s\S]*?\}\('((?:[^'\\]|\\.)*)',(\d+),(\d+),'((?:[^'\\]|\\.)*)'\.split\('\|'\)/
+            );
+            if (!m) continue;
+
+            const packed = m[1].replace(/\\'/g, "'").replace(/\\"/g, '"');
+            const base = parseInt(m[2], 10);
+            const count = parseInt(m[3], 10);
+            const tokens = m[4].split('|');
+
+            // Unpack estilo Dean Edwards
+            let unpacked = packed;
+            let c = count;
+            while (c--) {
+              if (tokens[c]) {
+                unpacked = unpacked.split(
+                  new RegExp('\\b' + c.toString(base) + '\\b', 'g')
+                ).join(tokens[c]);
+              }
+            }
+
+            // Buscar m3u8
+            const m3u8 = unpacked.replace(/\\\//g, '/')
+              .match(/https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/i);
+            if (m3u8) return { type: 'm3u8', url: m3u8[0] };
+
+            // Fallback a mp4
+            const mp4 = unpacked.replace(/\\\//g, '/')
+              .match(/https?:\/\/[^"'\s<>]+\.mp4[^"'\s<>]*/i);
+            if (mp4) return { type: 'mp4', url: mp4[0] };
+          } catch (e) { /* continuar */ }
         }
+
+        // Buscar directo en el HTML
+        const html = document.documentElement.innerHTML.replace(/\\\//g, '/');
+        const m3u8 = html.match(/https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/i);
+        if (m3u8) return { type: 'm3u8', url: m3u8[0] };
+
+        const mp4 = html.match(/https?:\/\/[^"'\s<>]+\.mp4[^"'\s<>]*/i);
+        if (mp4) return { type: 'mp4', url: mp4[0] };
+
         return null;
       });
 
-      if (m3u8Captured) {
-        console.log('[filelions] 📜 m3u8 en script:', m3u8Captured.slice(0, 130));
+      if (found) {
+        if (found.type === 'm3u8') m3u8Captured = found.url;
+        else mp4Captured = found.url;
+        console.log(`[filelions] 📄 ${found.type} en DOM:`, found.url.slice(0, 130));
       }
     }
 
-    // ─── Fallback 3: mp4 directo ───
-    if (!m3u8Captured) {
-      const mp4 = await page.evaluate(() => {
-        const html = document.documentElement.innerHTML;
-        const m = html.match(/https?:\/\/[^"'\s<>]+\.mp4[^"'\s<>]*/i);
-        return m ? m[0] : null;
-      });
-      if (mp4) {
-        console.log('[filelions] ✅ MP4:', mp4.slice(0, 130));
-        await page.close().catch(() => {});
-        scheduleIdleClose();
-        return { stream: mp4, kind: 'mp4', referer: embedUrl };
-      }
-    }
-
-    // ─── Cleanup de la página (no del browser) ───
+    // ─── Cerrar página (no el browser) ────────────────────────────
     await page.close().catch(() => {});
     scheduleIdleClose();
 
-    if (!m3u8Captured) {
-      console.warn('[filelions] ❌ No se encontró m3u8 ni mp4');
-      return null;
+    if (m3u8Captured) {
+      console.log('[filelions] ✅ HLS:', m3u8Captured.slice(0, 130));
+      return { stream: m3u8Captured, kind: 'hls', referer: embedUrl };
+    }
+    if (mp4Captured) {
+      console.log('[filelions] ✅ MP4:', mp4Captured.slice(0, 130));
+      return { stream: mp4Captured, kind: 'mp4', referer: embedUrl };
     }
 
-    console.log('[filelions] ✅ HLS:', m3u8Captured.slice(0, 130));
-    return {
-      stream: m3u8Captured,
-      kind: 'hls',
-      referer: embedUrl,
-    };
+    console.warn('[filelions] ❌ No se encontró stream');
+    return null;
 
   } catch (err) {
     console.warn('[filelions] Error:', err.message);
