@@ -1,60 +1,87 @@
+'use strict';
+
 // ══════════════════════════════════════════════════════════════════════════
 // Desempaquetador de JavaScript ofuscado (Dean Edwards Packer)
-// Uso: unpack(packedCode) → devuelve el código original legible
+// Formato: eval(function(p,a,c,k,e,d){...}('CODE',BASE,COUNT,'W1|W2|...'.split('|'),0,{}))
 // ══════════════════════════════════════════════════════════════════════════
 
 function unpack(packed) {
-  try {
-    // Buscar el patrón: }('CODE',N,N,'WORDS'.split('|'),0,{})
-    const match = packed.match(
-      /}\s*\(\s*'([^']+)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']+)'\.split\s*\(\s*'\|'\s*\)\s*,\s*0\s*,\s*\{\s*\}\s*\)/
-    );
-    if (!match) {
-      // Probar variante con comillas dobles
-      const match2 = packed.match(
-        /}\s*\(\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]+)"\.split\s*\(\s*"\|"\s*\)\s*,\s*0\s*,\s*\{\s*\}\s*\)/
-      );
-      if (!match2) return packed;
-      return decode(match2[1], parseInt(match2[2]), parseInt(match2[3]), match2[4]);
-    }
-    return decode(match[1], parseInt(match[2]), parseInt(match[3]), match[4]);
-  } catch (e) {
-    return packed;
+  if (!packed) return packed;
+
+  // ═══ FIX #1: regex que maneja comillas escapadas (\' y \") ═══
+  const patterns = [
+    // Comillas simples
+    /}\s*\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'((?:[^'\\]|\\.)*)'\s*\.\s*split\s*\(\s*['"]\|['"]\s*\)/,
+    // Comillas dobles
+    /}\s*\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"((?:[^"\\]|\\.)*)"\s*\.\s*split\s*\(\s*['"]\|['"]\s*\)/,
+  ];
+
+  let m = null;
+  for (const re of patterns) {
+    m = packed.match(re);
+    if (m) break;
   }
+  if (!m) return packed;
+
+  // Des-escapar comillas dentro del código packed
+  const code = m[1].replace(/\\'/g, "'").replace(/\\"/g, '"');
+  const base = parseInt(m[2], 10);
+  const count = parseInt(m[3], 10);
+  const words = m[4].split('|');
+
+  return decode(code, base, count, words);
 }
 
-function decode(p, a, c, k) {
-  const kArr = k.split('|');
-  const base = a;
+// ═══ FIX #2: decode con validación estricta del token ═══
+function decode(p, base, count, kArr) {
+  return p.replace(/\b[0-9a-zA-Z]+\b/g, (token) => {
+    // Convertir de base `base` a número entero
+    const num = parseInt(token, base);
+    if (isNaN(num)) return token;
 
-  function encode(num) {
-    return num.toString(base);
-  }
+    // Verificar que la representación canónica coincida
+    // (evita reemplazar 'foo' cuando 'foo' casualmente es parseable)
+    if (num.toString(base) !== token.toLowerCase()) return token;
 
-  let result = p.replace(/\b\w+\b/g, function (word) {
-    const idx = kArr.indexOf(word);
-    if (idx !== -1) return kArr[idx];
-    // Convertir a número en base a → índice
-    const num = parseInt(word, base);
-    if (!isNaN(num) && kArr[num] !== undefined && kArr[num] !== '') {
-      return kArr[num];
-    }
+    // Rango válido
+    if (num < 0 || num >= kArr.length) return token;
+
+    // Solo reemplaza si hay palabra no vacía en el diccionario
+    const word = kArr[num];
+    if (word === undefined || word === '') return token;
+
     return word;
   });
-
-  return result;
 }
 
-// Extraer todos los .m3u8 de un bloque de código (desempaquetado o no)
+// ═══ FIX #3: extractM3U8 normaliza \/ y añade más patrones ═══
 function extractM3U8(code) {
+  if (!code) return null;
+
+  // Normalizar \/ → / (común en players ofuscados)
+  const normalized = code.replace(/\\\//g, '/');
+
   const patterns = [
-    /https?:\/\/[^\s"']+\.m3u8[^\s"']*/gi,
-    /https?:\/\/[^\s"']+master\.txt[^\s"']*/gi,
-    /https?:\/\/[^\s"']+index\.m3u8[^\s"']*/gi,
+    // URLs completas
+    /https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i,
+    /https?:\/\/[^\s"'<>\\]+master\.txt[^\s"'<>\\]*/i,
+    /https?:\/\/[^\s"'<>\\]+index\.m3u8[^\s"'<>\\]*/i,
+    // Configuración JW Player: file: "..."  /  sources: [{ file: "..." }]
+    /["']file["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
+    /["']file["']\s*:\s*["']([^"']+master\.txt[^"']*)["']/i,
+    /["']src["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
+    /["']source["']\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
+    // Sin extensión pero con patrón reconocible
+    /["']file["']\s*:\s*["']([^"']+(?:master|index|playlist)[^"']*)["']/i,
   ];
+
   for (const re of patterns) {
-    const m = code.match(re);
-    if (m && m.length > 0) return m[0].replace(/\\/g, '');
+    const m = normalized.match(re);
+    if (m) {
+      let url = m[1] || m[0];
+      if (url.startsWith('//')) url = 'https:' + url;
+      return url;
+    }
   }
   return null;
 }
