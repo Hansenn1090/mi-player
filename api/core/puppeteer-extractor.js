@@ -33,6 +33,7 @@ function getBrowser() {
                 '--disable-background-timer-throttling',
                 '--disable-backgrounding-occluded-windows',
                 '--disable-renderer-backgrounding',
+                '--disable-blink-features=AutomationControlled',   // ← anti-detección
                 '--window-size=1280,720',
             ],
             timeout: 30000,
@@ -88,78 +89,137 @@ async function extractStream(url) {
         const browser = await getBrowser();
         page = await browser.newPage();
 
-        // Bloquear imágenes, fuentes y media para ahorrar RAM
-        await page.setRequestInterception(true);
-        page.on('request', (request) => {
-            const type = request.resourceType();
-            if (['image', 'font', 'stylesheet', 'media'].includes(type)) {
-                return request.abort();
-            }
-            request.continue().catch(() => {});
+        // ─── Anti-detección ───────────────────────────────────────
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en'] });
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            window.chrome = { runtime: {} };
         });
 
-        page.on('popup', (p) => p.close().catch(() => {}));
+        await page.setUserAgent(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        );
+        await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' });
+        await page.setViewport({ width: 1280, height: 720 });
 
         page.setDefaultTimeout(20000);
         page.setDefaultNavigationTimeout(25000);
 
-        await page.setUserAgent(
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        );
+        // ─── Captura de streams ───────────────────────────────────
+        // ⚠️ NO usamos setRequestInterception para no abortar `media`
+        //    (el .mp4 de StreamWish se pide como resourceType=media)
 
-        let m3u8Url = null;
+        let captured = null;   // { url, kind }
+        let finalUrl = url;    // tras redirects
 
-        page.on('response', (response) => {
-            const ct = response.headers()['content-type'] || '';
-            const rUrl = response.url();
-            if (!m3u8Url && (rUrl.includes('.m3u8') || ct.includes('mpegurl'))) {
-                m3u8Url = rUrl;
+        // Capturamos en `request` (se dispara ANTES de cualquier abort)
+        page.on('request', (req) => {
+            if (captured) return;
+            const reqUrl = req.url();
+            if (/\.m3u8(\?|$)/i.test(reqUrl)) {
+                captured = { url: reqUrl, kind: 'hls' };
+                console.log('[Puppeteer] 📡 m3u8 (request):', reqUrl.slice(0, 130));
+            } else if (/\.mp4(\?|$)/i.test(reqUrl)) {
+                captured = { url: reqUrl, kind: 'mp4' };
+                console.log('[Puppeteer] 📡 mp4 (request):', reqUrl.slice(0, 130));
             }
         });
 
-        await withTimeout(
-            page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }),
-            22000,
-            'page.goto'
-        );
+        // Captura en `response` (fallback, por si el request no expone la URL)
+        page.on('response', (res) => {
+            if (captured) return;
+            const resUrl = res.url();
+            const ct = (res.headers()['content-type'] || '').toLowerCase();
+            if (/\.m3u8(\?|$)/i.test(resUrl) || /mpegurl/i.test(ct)) {
+                captured = { url: resUrl, kind: 'hls' };
+                console.log('[Puppeteer] 📡 m3u8 (response):', resUrl.slice(0, 130));
+            } else if (/\.mp4(\?|$)/i.test(resUrl) || /^video\//i.test(ct)) {
+                captured = { url: resUrl, kind: 'mp4' };
+                console.log('[Puppeteer] 📡 mp4 (response):', resUrl.slice(0, 130));
+            }
+        });
 
-        await new Promise(r => setTimeout(r, 4000));
+        // Cerrar popups de ads
+        page.on('popup', (p) => p.close().catch(() => {}));
 
-        // Si aún no hay stream, intentar clic en botones de play
-        if (!m3u8Url) {
+        // ─── Navegar ──────────────────────────────────────────────
+        try {
+            await withTimeout(
+                page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }),
+                22000,
+                'page.goto'
+            );
+            finalUrl = page.url();
+            console.log('[Puppeteer] URL final:', finalUrl);
+        } catch (e) {
+            console.warn('[Puppeteer] goto falló:', e.message);
+        }
+
+        // ─── Esperar a que aparezca el stream (hasta 12s) ─────────
+        const start = Date.now();
+        while (!captured && Date.now() - start < 12000) {
+            await new Promise(r => setTimeout(r, 300));
+        }
+
+        // ─── Si aún no hay stream, click en play ──────────────────
+        if (!captured) {
+            console.log('[Puppeteer] Sin stream, intentando click en play...');
             const frames = page.frames();
             for (const frame of frames) {
                 try {
-                    const fUrl = frame.url();
-                    if (/xpass|player|embed|video/i.test(fUrl)) {
-                        await withTimeout(
-                            frame.evaluate(() => {
-                                const selectors = [
-                                    '.play-button', '.vjs-big-play-button',
-                                    'button[aria-label*="play" i]',
-                                    '.jw-display-icon-container',
-                                    'button',
-                                ];
-                                for (const sel of selectors) {
-                                    const el = document.querySelector(sel);
-                                    if (el) { el.click(); return; }
+                    await withTimeout(
+                        frame.evaluate(() => {
+                            const selectors = [
+                                '.play-button',
+                                '.vjs-big-play-button',
+                                'button[aria-label*="play" i]',
+                                '.jw-display-icon-container',
+                                '.jw-icon-playback',
+                                'video',
+                            ];
+                            for (const sel of selectors) {
+                                const el = document.querySelector(sel);
+                                if (el) {
+                                    if (el.tagName === 'VIDEO') {
+                                        el.play?.();
+                                        el.muted = true;
+                                    } else if (typeof el.click === 'function') {
+                                        el.click();
+                                    }
+                                    return sel;
                                 }
-                            }),
-                            3000,
-                            'click-play'
-                        ).catch(() => {});
-                    }
+                            }
+                        }),
+                        3000,
+                        'click-play'
+                    ).catch(() => {});
                 } catch (_) {}
             }
-            await new Promise(r => setTimeout(r, 4000));
+
+            // Dar 8s más para que el stream se cargue
+            const start2 = Date.now();
+            while (!captured && Date.now() - start2 < 8000) {
+                await new Promise(r => setTimeout(r, 300));
+            }
         }
 
-        if (m3u8Url) {
-            console.log('[Puppeteer] ✅ Stream:', m3u8Url.slice(0, 100));
-            return { stream: m3u8Url, kind: 'hls', referer: url };
+        // ─── Resultado ────────────────────────────────────────────
+        if (captured) {
+            console.log(`[Puppeteer] ✅ ${captured.kind.toUpperCase()}:`, captured.url.slice(0, 130));
+
+            // Referer = origen de la URL final (después del redirect)
+            let referer = url;
+            try { referer = new URL(finalUrl).origin + '/'; } catch (_) {}
+
+            return {
+                stream: captured.url,
+                kind: captured.kind,
+                referer,
+            };
         }
 
-        console.log('[Puppeteer] ⚠️ No se encontró m3u8');
+        console.log('[Puppeteer] ⚠️ No se encontró stream');
         return null;
 
     } catch (err) {
