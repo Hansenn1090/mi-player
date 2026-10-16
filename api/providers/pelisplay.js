@@ -1,20 +1,5 @@
 // api/providers/pelisplay.js
-/**
- * Pelisplay.mom — Sitio con iframes codificados en base64
- *
- * Soporta películas y series:
- *   Películas: /pelicula/{slug}/
- *   Series:    /serie/{slug}/  o  /series/{slug}/
- *
- * Cada botón de opción tiene un atributo data-server con base64:
- *   <li data-server="aHR0cHM6Ly9udXBsb2FkLm15L3dhdGNoL...">
- *
- * Al decodificar:
- *   - https://nupload.my/watch/...
- *   - https://nupload.my/iframe/?url=https%3A%2F%2Fvoe.sx%2Fe%2F...
- *
- * Idioma: se detecta por el contenedor padre (Latino/Castellano/Subtitulado)
- */
+'use strict';
 
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -32,7 +17,6 @@ function getHeaders(extra = {}) {
   };
 }
 
-// Detección de host
 function detectServerName(url) {
   const u = (url || '').toLowerCase();
   if (/nupload\.my\/watch/i.test(u)) return 'Nupload';
@@ -62,7 +46,6 @@ function detectServerName(url) {
   return 'Servidor';
 }
 
-// Si es nupload.my/iframe?url=X, extraer X directamente
 function extractInnerUrl(url) {
   const m = url.match(/nupload\.my\/iframe\/?\?url=([^&]+)/i);
   if (!m) return null;
@@ -73,9 +56,6 @@ function extractInnerUrl(url) {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Helpers
-// ══════════════════════════════════════════════════════════════════
 function isSeriesType(type) {
   return ['tv', 'series', 'serie', 'serials'].includes(String(type || '').toLowerCase());
 }
@@ -89,7 +69,7 @@ function normalize(s) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Buscar URL de detalle (multi-URL)
+// FIX 1: timeout global por intento + solo 1 búsqueda efectiva
 // ══════════════════════════════════════════════════════════════════
 async function findDetailUrl(title, year, type) {
   const isSeries = isSeriesType(type);
@@ -100,61 +80,20 @@ async function findDetailUrl(title, year, type) {
     ? [/\/serie\//, /\/series\//, /\/tv\//]
     : [/\/pelicula\//, /\/peliculas\//, /\/movie\//];
 
-  // ─── Estrategia 1: wp-json API ─────────────────────────────
-  try {
-    const apiUrl = `${BASE}/wp-json/wp/v2/search?search=${encodeURIComponent(title)}&per_page=15`;
-    console.log(`[pelisplay] WP-API: ${apiUrl}`);
-
-    const { data } = await axios.get(apiUrl, {
-      timeout: 10000,
-      headers: getHeaders(),
-      validateStatus: s => s >= 200 && s < 400,
-    });
-
-    if (Array.isArray(data) && data.length > 0) {
-      let best = null;
-      let bestScore = 0;
-
-      for (const item of data) {
-        if (!item.url) continue;
-
-        const urlPath = item.url.replace(BASE, '');
-        const matchesType = pathMatchers.some(re => re.test(urlPath));
-        if (!matchesType) continue;
-
-        const itemNorm = normalize(item.title || '');
-        const wordsMatched = titleWords.filter(w => itemNorm.includes(w)).length;
-        const yearMatch = yearStr && (item.url.includes(yearStr) || (item.title || '').includes(yearStr));
-        const score = wordsMatched + (yearMatch ? 3 : 0);
-
-        if (score > bestScore && wordsMatched >= Math.min(2, titleWords.length)) {
-          bestScore = score;
-          best = item;
-        }
-      }
-
-      if (best) {
-        console.log(`[pelisplay] WP-API match (${bestScore}pts): ${best.title} → ${best.url}`);
-        return best.url;
-      }
-    }
-  } catch (e) {
-    // WP-API puede estar deshabilitado, es normal
-  }
-
-  // ─── Estrategia 2: probar varias URLs de búsqueda ─────────
+  // ← FIX: probar primero la URL que SÍ funciona en este sitio
   const searchUrls = [
-    `${BASE}/busqueda?q=${encodeURIComponent(title)}`,
-    `${BASE}/?s=${encodeURIComponent(title)}`,
-    `${BASE}/buscar?q=${encodeURIComponent(title)}`,
+    `${BASE}/busqueda?q=${encodeURIComponent(title)}`,   // funciona
+    `${BASE}/buscar?q=${encodeURIComponent(title)}`,     // también puede funcionar
   ];
 
   for (const searchUrl of searchUrls) {
     try {
       console.log(`[pelisplay] Search: ${searchUrl}`);
+      // ← FIX: timeout reducido a 5s para que si falla sea rápido
       const { data: searchHtml } = await axios.get(searchUrl, {
-        timeout: 10000,
+        timeout: 5000,
         headers: getHeaders(),
+        maxContentLength: 5 * 1024 * 1024,   // 5MB máximo
         validateStatus: s => s >= 200 && s < 400,
       });
 
@@ -165,7 +104,6 @@ async function findDetailUrl(title, year, type) {
 
       $('a').each((i, el) => {
         const href = $(el).attr('href') || '';
-        // Ignorar categorías, tags
         if (/\/category\/|\/tag\/|\/actor\/|\/director\/|\/genero|\/busqueda|\/search/.test(href)) return;
 
         const matchesType = pathMatchers.some(re => re.test(href));
@@ -221,7 +159,7 @@ async function findDetailUrl(title, year, type) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Función principal — firma correcta (title, year, tmdbId, type, lang)
+// FIX 2: reduce timeout detalle, añade Referer autorreferente
 // ══════════════════════════════════════════════════════════════════
 async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'latino') {
   const found = {};
@@ -230,7 +168,6 @@ async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'lati
   const isSeries = isSeriesType(type);
   console.log(`[pelisplay] Buscando: "${title}" (${year}) [${isSeries ? 'serie' : 'película'}]`);
 
-  // 1) Encontrar URL de detalle
   const detailUrl = await findDetailUrl(title, year, type);
 
   if (!detailUrl) {
@@ -239,12 +176,13 @@ async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'lati
   }
   console.log('[pelisplay] Detalle:', detailUrl);
 
-  // 2) Cargar página de detalle
   let detailHtml = '';
   try {
+    // ← FIX: timeout más corto (6s) para no agotar el presupuesto del registry
     const { data } = await axios.get(detailUrl, {
-      timeout: 12000,
-      headers: getHeaders(),
+      timeout: 6000,
+      headers: getHeaders({ Referer: detailUrl }),
+      maxContentLength: 8 * 1024 * 1024,   // 8MB máximo
       validateStatus: s => s >= 200 && s < 400,
     });
     detailHtml = data;
@@ -255,25 +193,14 @@ async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'lati
 
   const $d = cheerio.load(detailHtml);
 
-  // 3) Recorrer los tabs de idioma y sus opciones
-  // Estructura:
-  // <li class="tab-video-item">
-  //   <div> ... "Latino" ... </div>
-  //   <ul>
-  //     <li data-server="BASE64">Opción 1</li>
-  //     <li data-server="BASE64">Opción 2</li>
-  //   </ul>
-  // </li>
-
+  // Recorrer los tabs de idioma
   $d('li.tab-video-item').each((i, tabEl) => {
-    // Detectar idioma por el texto del tab
     const tabText = $d(tabEl).find('.tab-item-name').text().toLowerCase();
     let detectedLang = 'latino';
     if (/castellano|español|espanol/.test(tabText)) detectedLang = 'castellano';
     else if (/subtitulado|subtitle/.test(tabText)) detectedLang = 'subtitulado';
     else if (/latino/.test(tabText)) detectedLang = 'latino';
 
-    // Iterar las opciones dentro de este tab
     $d(tabEl).find('li[data-server]').each((j, optEl) => {
       const b64 = $d(optEl).attr('data-server');
       if (!b64) return;
@@ -287,7 +214,6 @@ async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'lati
 
       if (!decoded || !decoded.startsWith('http')) return;
 
-      // Si es nupload.my/iframe?url=X → extraer X (el host real, ej: voe.sx)
       const innerUrl = extractInnerUrl(decoded);
       const finalUrl = innerUrl || decoded;
 
@@ -296,13 +222,18 @@ async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'lati
 
       if (!found[detectedLang]) found[detectedLang] = {};
       if (!found[detectedLang][key]) {
-        found[detectedLang][key] = finalUrl;
+        // ← FIX: formato objeto consistente con el resto de providers
+        found[detectedLang][key] = {
+          url: finalUrl,
+          referer: detailUrl,
+          server: hostName,
+        };
         console.log(`[pelisplay] ✅ ${detectedLang}/${key}: ${finalUrl.slice(0, 90)}`);
       }
     });
   });
 
-  // 4) Fallback: buscar base64 en todo el HTML (por si está fuera de tabs)
+  // Fallback: buscar base64 en todo el HTML
   if (Object.keys(found).length === 0) {
     const b64Regex = /data-server="([A-Za-z0-9+/=]{20,})"/g;
     let m;
@@ -318,7 +249,11 @@ async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'lati
         if (!found[lang]) found[lang] = {};
         const key = `${hostName.toLowerCase()}_fallback`;
         if (!found[lang][key]) {
-          found[lang][key] = finalUrl;
+          found[lang][key] = {
+            url: finalUrl,
+            referer: detailUrl,
+            server: hostName,
+          };
           console.log(`[pelisplay] ✅ ${lang}/${key} (fallback): ${finalUrl.slice(0, 90)}`);
         }
       } catch (e) { /* skip */ }
@@ -333,7 +268,6 @@ async function scrapePelisplay(title, year, tmdbId, type = 'movie', lang = 'lati
 module.exports = {
   name: 'pelisplay',
   scrapePelisplay,
-  search: async (title, year, tmdbId, type, lang) => scrapePelisplay(title, year, tmdbId, type, lang),
+  search: async (title, year, tmdbId, type, lang) =>
+    scrapePelisplay(title, year, tmdbId, type, lang),
 };
-
-console.log('[pelisplay] Provider cargado');
