@@ -4,17 +4,13 @@
 /**
  * Cuevana3.gs — WordPress + React SPA con SSR
  *
- * Estructura:
+ * Rutas:
  *   Películas: /peliculas/<slug>-<year>/
  *   Series:    /series/<slug>/
  *   Episodios: /episodio/<slug>/
  *
- * Player:
- *   El iframe apunta a /player.php?t=<TOKEN>&server=<SERVER>
- *   El token es opaco — solo lo reenviamos tal cual.
- *
- * SSR renderiza SOLO el idioma activo (default = Latino).
- * Los demás idiomas se cargan vía JS/AJAX (no accesibles sin headless).
+ * Player: iframe a /player.php?t=<TOKEN>&server=<SERVER>
+ * SSR renderiza el idioma activo (default = Latino).
  */
 
 const axios = require('axios');
@@ -33,9 +29,6 @@ function getHeaders(extra = {}) {
   };
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Utilidades
-// ══════════════════════════════════════════════════════════════════
 function normalize(s) {
   return (s || '').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -58,7 +51,6 @@ async function fetchHtml(url, referer) {
   return data;
 }
 
-// Detecta el nombre del server desde la URL (o el parámetro ?server=)
 function detectServerName(url) {
   try {
     const u = new URL(url);
@@ -78,9 +70,6 @@ function detectServerName(url) {
   return null;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Búsqueda
-// ══════════════════════════════════════════════════════════════════
 async function findDetailUrl(title, year, type) {
   const isSeries = isSeriesType(type);
   const titleWords = normalize(title).split(' ').filter((w) => w.length > 2);
@@ -106,11 +95,10 @@ async function findDetailUrl(title, year, type) {
   const $ = cheerio.load(html);
   const candidates = [];
 
-  // SSR: cada tarjeta es <div><a href="/peliculas/slug-YYYY"><img alt="Title (YYYY)">...</a><h3>Title</h3></div>
   $(`a[href^="${pathPrefix}"]`).each((i, el) => {
     const href = $(el).attr('href') || '';
     const rest = href.slice(pathPrefix.length).replace(/\/$/, '');
-    if (!rest || rest.includes('/')) return; // excluir subrutas tipo /peliculas/estreno
+    if (!rest || rest.includes('/')) return;
 
     const imgAlt = $(el).find('img').attr('alt') || '';
     const h3 = $(el).parent().find('h3').first().text().trim()
@@ -148,52 +136,9 @@ async function findDetailUrl(title, year, type) {
   return null;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Intento de API para obtener TODOS los idiomas/servers
-// ══════════════════════════════════════════════════════════════════
-async function tryApi(postId) {
-  if (!postId) return null;
-
-  const endpoints = [
-    `${BASE}/wp-json/wpf/v1/movies/${postId}`,
-    `${BASE}/wp-json/wpf/v1/movie/${postId}`,
-    `${BASE}/wp-json/wpf/v1/get/movie/${postId}`,
-    `${BASE}/wp-api/v1/movies/${postId}`,
-    `${BASE}/wp-json/wp/v2/movies/${postId}?_fields=id,slug,meta,acf,players`,
-  ];
-
-  for (const url of endpoints) {
-    try {
-      const { data } = await axios.get(url, {
-        timeout: 8000,
-        headers: getHeaders({ 'Accept': 'application/json' }),
-      });
-      // Heurística: si la respuesta tiene algo que huele a players/servers/idiomas
-      const blob = JSON.stringify(data || {});
-      if (/player|server|latino|castellano|subtitulado|vimeo|voe/i.test(blob)) {
-        console.log(`[cuevana3gs] API hit: ${url}`);
-        return data;
-      }
-    } catch { /* sigue intentando */ }
-  }
-  return null;
-}
-
-function postIdFromHtml(html) {
-  const m = html.match(/\?post_type=\w+&(?:amp;)?p=(\d+)/)
-         || html.match(/[?&]p=(\d+)/)
-         || html.match(/shortlink[^>]*href="[^"]*[?&]p=(\d+)"/);
-  return m ? m[1] : null;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// Extracción de servers
-// ══════════════════════════════════════════════════════════════════
 function extractServers($d, pageUrl, langFallback) {
   const found = {};
 
-  // El botón activo del idioma tiene el texto "Latino"/"Castellano"/"Subtitulado"
-  // dentro de un span con clase "uppercase".
   let activeLang = langFallback || 'latino';
   const langSpan = $d('span.uppercase').first().text().trim().toLowerCase();
   if (/castellano|español/.test(langSpan)) activeLang = 'castellano';
@@ -208,9 +153,7 @@ function extractServers($d, pageUrl, langFallback) {
       if (!src.startsWith('http')) return;
       if (src === 'about:blank') return;
 
-      // Solo iframes del player de este sitio
       if (!/\/player\.php\?/.test(src) && !detectServerName(src)) return;
-      // Ignorar iframes de anuncios / histats / cloudflare etc.
       if (/histats|cloudflare|google|doubleclick|adsanalytics/i.test(src)) return;
 
       const serverName = detectServerName(src) || 'unknown';
@@ -235,9 +178,6 @@ function extractServers($d, pageUrl, langFallback) {
   return found;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Principal
-// ══════════════════════════════════════════════════════════════════
 async function scrapeCuevana3Gs(title, year, tmdbId, type = 'movie', lang = 'latino') {
   const found = {};
   if (!title) return found;
@@ -259,10 +199,8 @@ async function scrapeCuevana3Gs(title, year, tmdbId, type = 'movie', lang = 'lat
 
   const $d = cheerio.load(html);
 
-  // 1) Extracción directa del HTML (devuelve el server del idioma default)
   Object.assign(found, extractServers($d, detailUrl, lang));
 
-  // 2) Si es serie y no hay servers, cargar el primer episodio
   if (isSeries && Object.keys(found).length === 0) {
     const epHref = $d('a[href*="/episodio/"]').first().attr('href');
     if (epHref) {
@@ -275,16 +213,6 @@ async function scrapeCuevana3Gs(title, year, tmdbId, type = 'movie', lang = 'lat
       } catch (e) {
         console.warn('[cuevana3gs] Error episodio:', e.message);
       }
-    }
-  }
-
-  // 3) Intento de API (opcional) para obtener TODOS los idiomas
-  const postId = postIdFromHtml(html);
-  if (postId) {
-    const apiData = await tryApi(postId);
-    if (apiData) {
-      console.log('[cuevana3gs] API disponible — merges pendientes (analizar shape)');
-      // Aquí puedes mapear apiData → found si confirmas el shape
     }
   }
 
