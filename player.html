@@ -400,7 +400,7 @@ function triggerActionFlash(iconMarkup) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// ✅ FIX PRINCIPAL: Acepta tanto string como { url, referer, server }
+// Acepta tanto string como { url, referer, server }
 // ══════════════════════════════════════════════════════════════════════════
 function normalizeEntry(entry, fallbackKey) {
   if (entry && typeof entry === 'object' && typeof entry.url === 'string') {
@@ -528,19 +528,26 @@ function mountMp4(url) {
   vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
 }
 
-// ✅ FIX: ahora usa referrerpolicy="unsafe-url" para que VOE/StreamWish no devuelvan 403
+// ══════════════════════════════════════════════════════════════════════════
+// ✅ FIX: sin sandbox, sin referrerpolicy — máxima compatibilidad con
+//         StreamTape, PlayLatinsrc, VOE, StreamWish, etc.
+// ══════════════════════════════════════════════════════════════════════════
 function mountIframe(url) {
   const iframe = document.createElement('iframe');
   iframe.className = 'w-full h-full absolute inset-0 border-0';
   iframe.allow = 'autoplay; fullscreen; encrypted-media; picture-in-picture';
   iframe.allowFullscreen = true;
-  iframe.setAttribute('allowfullscreen', '');
-  iframe.setAttribute('referrerpolicy', 'unsafe-url');
-  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-downloads');
+  iframe.setAttribute('allowfullscreen', 'true');
+  iframe.setAttribute('webkitallowfullscreen', 'true');
+  iframe.setAttribute('mozallowfullscreen', 'true');
+  iframe.setAttribute('scrolling', 'no');
+  // ⚠️ NO añadir sandbox ni referrerpolicy: rompen StreamTape, PlayLatinsrc, etc.
   iframe.src = url;
   els.stage.appendChild(iframe);
-  _currentFrame = iframe; _currentVideoEl = null;
-  state.duration = 0; state.currentTime = 0;
+  _currentFrame = iframe;
+  _currentVideoEl = null;
+  state.duration = 0;
+  state.currentTime = 0;
   updateScrubberUI();
 }
 async function extractFromBackend(embedUrl, referer) {
@@ -568,7 +575,6 @@ async function selectServer(num) {
   teardown();
   showToast(`Cargando Server ${num}…`);
 
-  // ✅ FIX: usar el referer del server si existe
   const ref = srv.referer || srv.url;
 
   const ALWAYS_IFRAME = /playlatinsrc\.co|unlimplay\.com/i;
@@ -690,7 +696,6 @@ document.querySelectorAll('#group-formato-pantalla button').forEach(btn => {
   });
 });
 
-// ✅ FIX: data-audio="español" ahora coincide con la clave del backend
 document.querySelectorAll('#group-audio-options button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#group-audio-options button').forEach(b => { b.classList.remove('tv-btn-active'); const c = b.querySelector('.check-icon'); if (c) c.classList.add('hidden'); });
