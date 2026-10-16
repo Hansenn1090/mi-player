@@ -5,7 +5,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-const BASE = 'https://www1.cuevana3.now';   // ← ÚNICA CORRECCIÓN
+const BASE = 'https://www1.cuevana3.now';
 
 const ID_LANG = { '1': 'latino', '2': 'subtitulado', '3': 'castellano' };
 
@@ -44,11 +44,12 @@ function isSeriesType(type) {
 function detectServerName(url) {
   const u = (url || '').toLowerCase();
   if (/voe\.(sx|de|bar|net|to)/i.test(u)) return 'VOE';
-  if (/player\.vimeo|vimeo\.com/i.test(u)) return 'Vimeo';
+  if (/player\.vimeo|vimeo\.com|vimeos/i.test(u)) return 'Vimeo';
   if (/streamwish|embedwish|hglink|flaswish|wishfast/i.test(u)) return 'StreamWish';
   if (/vidhide|morencius|minochinos|callistanise|hgcloud|filelions/i.test(u)) return 'VidHide';
   if (/filemoon|moonplayer|byse/i.test(u)) return 'FileMoon';
-  if (/doodstream|dood\.(la|sh|so|pm|to)|d000d/i.test(u)) return 'DoodStream';
+  // Doodstream: acepta todos los dominios (incluyendo el actual doodstream.com)
+  if (/doodstream|dood\.(la|sh|so|pm|to|wf)|d000d/i.test(u)) return 'DoodStream';
   if (/fembed/i.test(u)) return 'Fembed';
   if (/uqload|ugload/i.test(u)) return 'Uqload';
   if (/streamtape|stape/i.test(u)) return 'StreamTape';
@@ -65,6 +66,8 @@ function normalizeUrl(url) {
   if (!url) return url;
   let u = String(url).trim();
   if (u.startsWith('//')) u = 'https:' + u;
+  // Solo arreglar el typo de uqload. NO reescribir doodstream.com:
+  // cada mirror tiene su propia base de datos de videos.
   u = u.replace(/\/\/ugload\./i, '//uqload.');
   return u;
 }
@@ -159,6 +162,19 @@ function extractServers($d, pageUrl, langFallback) {
       let src = $d(el).attr('data-src') || $d(el).attr('src');
       if (!src || !src.startsWith('http') || src === 'about:blank') return;
       src = normalizeUrl(src);
+
+      // ─── Filtro 1: descartar URLs sin ID de video ───
+      // Ej: https://dood.to/e/  (sin ID) → no reproducible
+      if (/\/(e|v|d|f)\/?$/i.test(src)) {
+        console.warn(`[cuevana3] URL sin ID descartada: ${src}`);
+        return;
+      }
+
+      // ─── Filtro 2: YouTube suele ser el trailer, no la película ───
+      if (/youtube\.com|youtu\.be/i.test(src)) {
+        console.log(`[cuevana3] YouTube ignorado (trailer): ${src.slice(0, 60)}`);
+        return;
+      }
 
       const $optWrap = $d(el).closest('[id^="OptE"]');
       const parentId = $optWrap.attr('id') || '';
