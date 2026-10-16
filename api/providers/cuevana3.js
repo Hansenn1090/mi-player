@@ -5,7 +5,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-const BASE = 'https://cuevana3.no';
+const BASE = 'https://www1.cuevana3.now';   // ← ÚNICA CORRECCIÓN
 
 const ID_LANG = { '1': 'latino', '2': 'subtitulado', '3': 'castellano' };
 
