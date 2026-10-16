@@ -1,25 +1,10 @@
 // api/core/extractors/uqload.js
-/**
- * Uqload.vc — Extractor HLS (.m3u8)
- *
- * El player es JW Player (jw8) y la URL del stream está dentro de un
- * script ofuscado con eval() usando el packer de Dean Edwards:
- *
- *   eval(function(p,a,c,k,e,d){...}('...',36,409,'...'.split('|')))
- *
- * Al desempaquetarla se obtiene el setup del JW Player con:
- *   sources: [{ file: "https://strm10.uqload.vc/.../master.m3u8?t=..." }]
- *
- * La URL tiene auth por token válido ~4 horas (e=14400).
- */
+'use strict';
 
 const axios = require('axios');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-// ══════════════════════════════════════════════════════════════════
-// Dean Edwards packer unpacker
-// ══════════════════════════════════════════════════════════════════
 function unpackPacker(packedStr, base, count, tokens) {
   let p = packedStr;
   let c = count;
@@ -31,45 +16,19 @@ function unpackPacker(packedStr, base, count, tokens) {
   return p;
 }
 
-// Extrae los argumentos del eval() del packer
+// ← FIX: regex flexible que acepta cualquier variante del packer
 function extractPackerArgs(html) {
-  const startIdx = html.indexOf('eval(function(p,a,c,k,e,d)');
-  if (startIdx === -1) return null;
-
-  // Encontrar el fin de la definición de la función: "}('"
-  const fnEnd = html.indexOf("}('", startIdx);
-  if (fnEnd === -1) return null;
-
-  const afterFn = html.slice(fnEnd + 2); // empieza con el primer '
-
-  // Encontrar el cierre del packed string (primer ' no escapado)
-  let packedEnd = -1;
-  let esc = false;
-  for (let i = 1; i < afterFn.length; i++) {
-    const ch = afterFn[i];
-    if (esc) { esc = false; continue; }
-    if (ch === '\\') { esc = true; continue; }
-    if (ch === "'") { packedEnd = i; break; }
-  }
-  if (packedEnd === -1) return null;
-
-  const packedStr = afterFn.slice(1, packedEnd);
-  const rest = afterFn.slice(packedEnd + 1); // empieza con ,
-
-  const argsMatch = rest.match(/^,(\d+),(\d+),'([^']*)'/);
-  if (!argsMatch) return null;
+  const match = html.match(/eval\(function\(p,a,c,k,e,[a-z]\)[\s\S]*?\}\(\s*'([\s\S]+?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([\s\S]+?)'\.split\('\|'\)/);
+  if (!match) return null;
 
   return {
-    packedStr,
-    base: parseInt(argsMatch[1], 10),
-    count: parseInt(argsMatch[2], 10),
-    tokens: argsMatch[3].split('|'),
+    packedStr: match[1].replace(/\\'/g, "'"),
+    base: parseInt(match[2], 10),
+    count: parseInt(match[3], 10),
+    tokens: match[4].split('|'),
   };
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Extractor principal
-// ══════════════════════════════════════════════════════════════════
 async function extractUqload(embedUrl) {
   if (!embedUrl || !/uqload/i.test(embedUrl)) return null;
 
@@ -88,13 +47,20 @@ async function extractUqload(embedUrl) {
       maxRedirects: 5,
     });
 
-    // ─── Método 1: desempaquetar el eval del packer ─────────────
+    console.log(`[uqload] HTML recibido: ${html.length} bytes`);
+
+    // Detectar bloqueos/errores en el HTML
+    if (/cloudflare|just a moment|cf-challenge|access denied|error_wrong_ip/i.test(html)) {
+      console.warn('[uqload] ⚠️ HTML contiene challenge/bloqueo');
+      return null;
+    }
+
+    // ─── Método 1: packer ───────────────────────────────────────
     const args = extractPackerArgs(html);
     if (args) {
-      console.log('[uqload] Encontrado packer, desempaquetando...');
+      console.log(`[uqload] Packer detectado (b=${args.base}, c=${args.count}, tokens=${args.tokens.length})`);
       const unpacked = unpackPacker(args.packedStr, args.base, args.count, args.tokens);
 
-      // Buscar .m3u8 (HLS)
       const m3u8Match = unpacked.match(/https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/i);
       if (m3u8Match) {
         let url = m3u8Match[0];
@@ -103,7 +69,6 @@ async function extractUqload(embedUrl) {
         return { stream: url, kind: 'hls', referer: embedUrl };
       }
 
-      // Buscar .mp4
       const mp4Match = unpacked.match(/https?:\/\/[^"'\s<>]+\.mp4[^"'\s<>]*/i);
       if (mp4Match) {
         let url = mp4Match[0];
@@ -112,13 +77,12 @@ async function extractUqload(embedUrl) {
         return { stream: url, kind: 'mp4', referer: embedUrl };
       }
 
-      // Log para debug si no encontramos nada
       console.warn('[uqload] ⚠️ Desempaquetado OK pero sin m3u8/mp4');
     } else {
-      console.warn('[uqload] ⚠️ No se encontró el packer en el HTML');
+      console.warn('[uqload] ⚠️ No se encontró packer (posible cambio de ofuscación)');
     }
 
-    // ─── Método 2: fallback — buscar URLs directas en el HTML ───
+    // ─── Método 2: URLs directas en el HTML ─────────────────────
     const directM3u8 = html.match(/https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/i);
     if (directM3u8) {
       console.log('[uqload] ✅ HLS (fallback):', directM3u8[0].slice(0, 130));
