@@ -1,54 +1,71 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-const { unpack, extractM3U8 } = require('./unpacker');
+// api/core/extractors/streamwish.js
+'use strict';
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+const { extractStream: puppeteerExtract } = require('../puppeteer-extractor');
 
+/**
+ * Extractor para StreamWish (y sus mirrors)
+ *
+ * StreamWish sirve MP4 (no HLS) con TOKEN dinámico por sesión:
+ *   https://xxx.premilkyway.com/vp/.../video.mp4?t=<TOKEN>&s=<SESSION>&e=<EXPIRY>
+ *
+ * El TOKEN se genera en JavaScript, no está en el HTML estático.
+ * Además el dominio rota constantemente:
+ *   streamwish.to → playnixes.com → niramirus.com → ...
+ *
+ * Delegamos en puppeteer-extractor.js que:
+ *   1. Lanza Chromium
+ *   2. Sigue el redirect al mirror activo
+ *   3. Intercepta las peticiones de red y captura el .mp4 real
+ */
 async function extractStreamWish(embedUrl) {
+  console.log('[streamwish] Extrayendo stream de:', embedUrl.slice(0, 90));
+
+  if (!embedUrl) return null;
+
+  // Acepta todos los mirrors conocidos
+  if (!/streamwish|embedwish|hglink|flaswish|wishfast|playnixes|niramirus|swdyu|swhoi/i.test(embedUrl)) {
+    console.warn('[streamwish] Host no reconocido');
+    return null;
+  }
+
   try {
-    console.log('[streamwish] Extrayendo:', embedUrl.slice(0, 80));
+    const result = await puppeteerExtract(embedUrl);
 
-    const { data: html } = await axios.get(embedUrl, {
-      timeout: 15000,
-      headers: {
-        'User-Agent': UA,
-        'Referer': embedUrl,
-        'Accept': 'text/html,application/xhtml+xml,*/*',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-      },
-    });
-
-    // 1. Buscar m3u8 directo en el HTML
-    let m3u8 = extractM3U8(html);
-
-    // 2. Si no, buscar en los scripts
-    if (!m3u8) {
-      const $ = cheerio.load(html);
-      const scripts = $('script').map((i, el) => $(el).html()).get();
-      for (const script of scripts) {
-        if (!script) continue;
-        // Desempaquetar si tiene eval-packer
-        const code = script.includes('eval(function(p,a,c,k,e,d)')
-          ? unpack(script)
-          : script;
-        const found = extractM3U8(code);
-        if (found) { m3u8 = found; break; }
-      }
-    }
-
-    if (!m3u8) {
-      console.log('[streamwish] No se encontró m3u8');
+    if (!result || !result.stream) {
+      console.log('[streamwish] ⚠️ No se pudo extraer el stream');
       return null;
     }
 
-    console.log('[streamwish] OK:', m3u8.slice(0, 80));
+    // ══════════════════════════════════════════════════════════════
+    // Referer: usar el del resultado de Puppeteer si existe,
+    // sino el origen del embed
+    // ══════════════════════════════════════════════════════════════
+    let streamReferer = result.referer || null;
+    if (!streamReferer) {
+      try {
+        streamReferer = new URL(embedUrl).origin + '/';
+      } catch (_) {
+        streamReferer = embedUrl;
+      }
+    }
+
+    // StreamWish sirve MP4 con token; si no detectamos tipo, inferimos por extensión
+    const kind = result.kind
+      || (/\.m3u8/i.test(result.stream) ? 'hls' : 'mp4');
+
+    console.log('[streamwish] ✅ Stream encontrado:', result.stream.slice(0, 120));
+    console.log('[streamwish]    Kind:', kind);
+    console.log('[streamwish]    Referer:', streamReferer);
+
     return {
-      stream: m3u8,
-      kind: 'hls',
-      referer: new URL(embedUrl).origin + '/',
+      stream: result.stream,
+      kind,
+      referer: streamReferer,
     };
-  } catch (e) {
-    console.error('[streamwish] Error:', e.message);
+
+  } catch (err) {
+    console.warn('[streamwish] ❌ Error:', err.message);
     return null;
   }
 }
