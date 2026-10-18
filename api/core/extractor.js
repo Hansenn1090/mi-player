@@ -18,6 +18,7 @@ const { extractFembed }      = require('./extractors/fembed');
 const { extractWaaw }        = require('./extractors/waaw');
 const { extractWatchSB }     = require('./extractors/watchsb');
 const { extractStreamLare }  = require('./extractors/streamlare');
+const { extractFastream }    = require('./extractors/fastream'); // ← NUEVO
 
 async function extractStream(embedUrl) {
     if (!embedUrl || !embedUrl.startsWith('http')) return null;
@@ -31,7 +32,7 @@ async function extractStream(embedUrl) {
         }
 
         // ─── StreamWish (incluye hglink, flaswish, embedwish) ──
-        if (/streamwish|hglink|flaswish|embedwish|wishfast/i.test(url)) {
+        if (/streamwish|hglink|flaswish|embedwish|wishfast|playnixes|niramirus/i.test(url)) {
             return await extractStreamWish(embedUrl);
         }
 
@@ -108,6 +109,13 @@ async function extractStream(embedUrl) {
         // ─── WatchSB ───────────────────────────────────────────
         if (/watchsb/i.test(url)) {
             return await extractWatchSB(embedUrl);
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // ─── Fastream (NUEVO) ──────────────────────────────────
+        // ═══════════════════════════════════════════════════════
+        if (/fastream/i.test(url)) {
+            return await extractFastream(embedUrl);
         }
 
         console.warn('[extractor] Host no reconocido:', embedUrl);
