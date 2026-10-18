@@ -24,19 +24,18 @@ function safeRequire(path, preferredName) {
              || Object.values(mod).find(v => typeof v === 'function');
     return typeof fn === 'function' ? fn : dummyFn;
   } catch (e) {
+    // FIX: Ahora avisa en los logs si un archivo falla al cargar (ej. por error de sintaxis)
+    console.warn(`[scraper] ❌ Error cargando ${path}:`, e.message);
     return dummyFn;
   }
 }
 
-// Providers activos (nombres reales de archivo)
+// Providers activos (nombres reales de archivo y función EXACTA)
 const PROVIDERS = [
-  { name: 'pelispledia',  fn: safeRequire('../providers/pelispledia',  'scrapePelispledia') },
+  { name: 'cuevana3gs',   fn: safeRequire('../providers/cuevana3gs',   'scrapeCuevana3Gs') }, // <--- Corregida la G y S
   { name: 'lamovie',      fn: safeRequire('../providers/lamovie',      'scrapeLaMovie') },
-  { name: 'cuevana3gs',   fn: safeRequire('../providers/cuevana3gs',   'scrapeCuevana3gs') },
-  { name: 'cuevana3',     fn: safeRequire('../providers/cuevana3',     'scrapeCuevana3') },
-  { name: 'cuevana',      fn: safeRequire('../providers/cuevana',      'scrapeCuevana') },
-  { name: 'pelisplay',    fn: safeRequire('../providers/pelisplay',    'scrapePeliPlay') },
-  { name: 'pelispediais', fn: safeRequire('../providers/pelispediais', 'scrapePelispediais') },
+  { name: 'cuevana3sc',   fn: safeRequire('../providers/cuevana3sc',   'scrapeCuevana3Sc') },
+  { name: 'pelispediais', fn: safeRequire('../providers/pelispediais', 'scrapePelispediaIs') }, // <--- Corregida la I y S
   { name: 'playlatinsrc', fn: safeRequire('../providers/playlatinsrc', 'scrapePlaylatinsrc') },
   { name: 'unlimplay',    fn: safeRequire('../providers/unlimplay',    'scrapeUnlimplay') },
 ];
