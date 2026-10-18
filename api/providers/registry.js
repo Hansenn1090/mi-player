@@ -38,6 +38,7 @@ const DIRECT_PROVIDERS = new Set([
 
 const MULTILANG_PROVIDERS = new Set([
   'cinehax',       
+  'playpelis',     // <--- AGREGADO: Playpelis devuelve estructura multi-idioma
   'cuevana3gs',    
   'cuevana3sc',    
   'pelispediais', 
@@ -47,6 +48,7 @@ const MULTILANG_PROVIDERS = new Set([
 
 const PROVIDER_PRIORITY = [
   'cinehax',       
+  'playpelis',     // <--- AGREGADO: Prioridad alta
   'cuevana3gs',    
   'pelispedia',
   'lamovie',
