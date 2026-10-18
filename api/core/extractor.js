@@ -19,7 +19,8 @@ const { extractWaaw }        = require('./extractors/waaw');
 const { extractWatchSB }     = require('./extractors/watchsb');
 const { extractStreamLare }  = require('./extractors/streamlare');
 const { extractFastream }    = require('./extractors/fastream');
-const { extractMoviemaster } = require('./extractors/moviemaster'); // ← NUEVO
+const { extractMoviemaster } = require('./extractors/moviemaster');
+const { extractPlaypelis }   = require('./extractors/playpelis'); // ← NUEVO IMPORT
 
 async function extractStream(embedUrl) {
     if (!embedUrl || !embedUrl.startsWith('http')) return null;
@@ -27,6 +28,11 @@ async function extractStream(embedUrl) {
     const url = embedUrl.toLowerCase();
 
     try {
+        // ─── Playpelis (Trembed) ───────────────────────────────
+        if (/playpelis\.net/i.test(url)) {
+            return await extractPlaypelis(embedUrl);
+        }
+
         // ─── Moviemaster (Cinehax) ─────────────────────────────
         if (/moviemaster\.lat/i.test(url)) {
             return await extractMoviemaster(embedUrl);
