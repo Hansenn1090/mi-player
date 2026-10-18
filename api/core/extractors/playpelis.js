@@ -4,58 +4,49 @@ const axios = require('axios');
 
 async function extractPlaypelis(embedUrl) {
     try {
-        const session = axios.create({
+        // Pedimos el iframe simulando un navegador real
+        const res = await axios.get(embedUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
                 'Referer': 'https://playpelis.net/',
                 'Origin': 'https://playpelis.net'
-            }
+            },
+            timeout: 10000,
+            validateStatus: false // Para que no explote si da error 403 o 404
         });
 
-        // Pedimos el HTML del iframe
-        const res = await session.get(embedUrl, { timeout: 10000, validateStatus: false });
-        const html = res.data;
+        // DEBUG: Ver en los logs qué está pasando
+        console.log(`[playpelis] Status de respuesta: ${res.status}`);
+        const html = typeof res.data === 'string' ? res.data : '';
+        console.log(`[playpelis] Longitud del HTML recibido: ${html.length} caracteres`);
 
-        if (typeof html !== 'string') {
+        if (res.status !== 200 || html.length < 500) {
+            console.warn('[playpelis] El servidor bloqueó la petición o devolvió una página vacía.');
             return { url: embedUrl, referer: 'https://playpelis.net/', isIframe: true };
         }
 
-        // 1. Buscar un iframe anidado dentro del embed
-        // Playpelis a veces redirige a un servidor externo con la etiqueta <iframe src="...">
+        // 1. Buscar enlace directo .m3u8 o .mp4
+        const m3u8Match = html.match(/(https?:\/\/[^"']+\.(?:m3u8|mp4)[^"']*)/i);
+        if (m3u8Match) {
+            return { url: m3u8Match[1], referer: 'https://playpelis.net/', server: 'Playpelis (Directo)' };
+        }
+
+        // 2. Buscar iframe interno (StreamWish, Filemoon, etc.)
         const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-        
         if (iframeMatch) {
             const innerUrl = iframeMatch[1];
-            // Si el iframe interno apunta a un servidor conocido, lo devolvemos para que tu enrutador lo resuelva
-            if (innerUrl.includes('streamwish') || innerUrl.includes('filemoon') || innerUrl.includes('vidhide') || innerUrl.includes('voe') || innerUrl.includes('dood') || innerUrl.includes('mixdrop')) {
-                return { 
-                    url: innerUrl, 
-                    referer: 'https://playpelis.net/',
-                    server: 'Playpelis (Externo)'
-                };
+            if (/streamwish|filemoon|vidhide|voe|dood|mixdrop/i.test(innerUrl)) {
+                return { url: innerUrl, referer: 'https://playpelis.net/', server: 'Playpelis (Externo)' };
             }
         }
 
-        // 2. Buscar el archivo .m3u8 o mp4 directamente en el código
-        const m3u8Match = html.match(/(https?:\/\/[^"']+\.(?:m3u8|mp4)[^"']*)/i);
-        if (m3u8Match) {
-            return { 
-                url: m3u8Match[1], 
-                referer: 'https://playpelis.net/',
-                server: 'Playpelis (Directo)'
-            };
-        }
-
-        // 3. Fallback: si no encuentra nada, devuelve el iframe original (para que el frontend lo muestre)
-        console.warn('[playpelis] No se encontró M3U8 ni iframe interno. Devolviendo iframe original.');
-        return { 
-            url: embedUrl, 
-            referer: 'https://playpelis.net/', 
-            isIframe: true 
-        };
+        // 3. Fallback: Devolver iframe original
+        return { url: embedUrl, referer: 'https://playpelis.net/', isIframe: true };
 
     } catch (error) {
-        console.error('[playpelis] Error:', error.message);
+        console.error('[playpelis] Error crítico:', error.message);
         return { url: embedUrl, referer: 'https://playpelis.net/', isIframe: true };
     }
 }
