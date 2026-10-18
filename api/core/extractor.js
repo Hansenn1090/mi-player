@@ -18,7 +18,8 @@ const { extractFembed }      = require('./extractors/fembed');
 const { extractWaaw }        = require('./extractors/waaw');
 const { extractWatchSB }     = require('./extractors/watchsb');
 const { extractStreamLare }  = require('./extractors/streamlare');
-const { extractFastream }    = require('./extractors/fastream'); // ← NUEVO
+const { extractFastream }    = require('./extractors/fastream');
+const { extractMoviemaster } = require('./extractors/moviemaster'); // ← NUEVO
 
 async function extractStream(embedUrl) {
     if (!embedUrl || !embedUrl.startsWith('http')) return null;
@@ -26,12 +27,17 @@ async function extractStream(embedUrl) {
     const url = embedUrl.toLowerCase();
 
     try {
+        // ─── Moviemaster (Cinehax) ─────────────────────────────
+        if (/moviemaster\.lat/i.test(url)) {
+            return await extractMoviemaster(embedUrl);
+        }
+
         // ─── Uqload ────────────────────────────────────────────
         if (/uqload\.(vc|io|com|to|net)/i.test(url)) {
             return await extractUqload(embedUrl);
         }
 
-        // ─── StreamWish (incluye hglink, flaswish, embedwish) ──
+        // ─── StreamWish ────────────────────────────────────────
         if (/streamwish|hglink|flaswish|embedwish|wishfast|playnixes|niramirus/i.test(url)) {
             return await extractStreamWish(embedUrl);
         }
@@ -41,7 +47,7 @@ async function extractStream(embedUrl) {
             return await extractVidmoly(embedUrl);
         }
 
-        // ─── FileLions (incluye vidhide, morencius, filelions.to) ──
+        // ─── FileLions ─────────────────────────────────────────
         if (/filelions|vidhide|minochinos|callistanise|morencius|hgcloud/i.test(url)) {
             return await extractFileLions(embedUrl);
         }
@@ -51,7 +57,7 @@ async function extractStream(embedUrl) {
             return await extractVimeos(embedUrl);
         }
 
-        // ─── Doodstream (incluye playmogo) ─────────────────────
+        // ─── Doodstream ────────────────────────────────────────
         if (/doodstream|dood\.(la|sh|so|pm|to|stream)|d000d|playmogo/i.test(url)) {
             return await extractDoodstream(embedUrl);
         }
@@ -111,9 +117,7 @@ async function extractStream(embedUrl) {
             return await extractWatchSB(embedUrl);
         }
 
-        // ═══════════════════════════════════════════════════════
-        // ─── Fastream (NUEVO) ──────────────────────────────────
-        // ═══════════════════════════════════════════════════════
+        // ─── Fastream ──────────────────────────────────────────
         if (/fastream/i.test(url)) {
             return await extractFastream(embedUrl);
         }
