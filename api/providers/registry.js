@@ -37,17 +37,20 @@ const DIRECT_PROVIDERS = new Set([
   'facilitoplay',
 ]);
 
+
+
 const MULTILANG_PROVIDERS = new Set([
-  'cuevana3gs',    // <--- PRIORIDAD MÁXIMA para cuevana3.gs
-  'cuevana3sc',    // cuevana3.sc
+  'cinehax',       // <--- AGREGAR AQUÍ
+  'cuevana3gs',    
+  'cuevana3sc',    
   'pelispediais', 
   'pelisplay',
   'lamovie',
-  // 'cuevana3' se eliminó de aquí porque está en SKIP
 ]);
 
 const PROVIDER_PRIORITY = [
-  'cuevana3gs',    // <--- EL PRIMERO EN LA LISTA (Solo usa .gs)
+  'cinehax',       // <--- AGREGAR AQUÍ (Puedes ponerlo de primero si quieres)
+  'cuevana3gs',    
   'pelispedia',
   'lamovie',
   'cuevana3sc',
@@ -55,7 +58,7 @@ const PROVIDER_PRIORITY = [
   'pelispediais',
   'playlatinsrc',
   'unlimplay',
-];
+]);
 
 const KNOWN_LANGS = new Set([
   'latino', 'español', 'espanol', 'castellano',
