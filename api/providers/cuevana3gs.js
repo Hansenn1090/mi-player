@@ -1,18 +1,6 @@
 // api/providers/cuevana3gs.js
 'use strict';
 
-/**
- * Cuevana3.gs — WordPress + React SPA con SSR
- *
- * Rutas:
- *   Películas: /peliculas/<slug>-<year>/
- *   Series:    /series/<slug>/
- *   Episodios: /episodio/<slug>/
- *
- * Player: iframe a /player.php?t=<TOKEN>&server=<SERVER>
- * SSR renderiza el idioma activo (default = Latino).
- */
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -95,15 +83,25 @@ async function findDetailUrl(title, year, type) {
   const $ = cheerio.load(html);
   const candidates = [];
 
-  $(`a[href^="${pathPrefix}"]`).each((i, el) => {
-    const href = $(el).attr('href') || '';
+  // FIX: Acepta URLs relativas y absolutas
+  $(`a[href*="${pathPrefix}"]`).each((i, el) => {
+    let href = $(el).attr('href') || '';
+    
+    // Normalizar a ruta relativa si viene absoluta
+    if (href.startsWith('http')) {
+      try { href = new URL(href).pathname; } catch(e) { return; }
+    }
+    
+    if (!href.startsWith(pathPrefix)) return;
     const rest = href.slice(pathPrefix.length).replace(/\/$/, '');
     if (!rest || rest.includes('/')) return;
 
+    // FIX: Extracción de título más robusta
     const imgAlt = $(el).find('img').attr('alt') || '';
-    const h3 = $(el).parent().find('h3').first().text().trim()
-            || $(el).find('h3').first().text().trim();
-    const titleText = imgAlt || h3;
+    const hTag = $(el).find('h2, h3').first().text().trim();
+    const parentTitle = $(el).parent().find('.Title').first().text().trim();
+    const titleText = imgAlt || hTag || parentTitle || $(el).text().trim();
+    
     if (!titleText) return;
 
     candidates.push({ href, title: titleText });
@@ -198,7 +196,6 @@ async function scrapeCuevana3Gs(title, year, tmdbId, type = 'movie', lang = 'lat
   }
 
   const $d = cheerio.load(html);
-
   Object.assign(found, extractServers($d, detailUrl, lang));
 
   if (isSeries && Object.keys(found).length === 0) {
@@ -227,3 +224,5 @@ module.exports = {
   search: async (title, year, tmdbId, type, lang) =>
     scrapeCuevana3Gs(title, year, tmdbId, type, lang),
 };
+
+console.log('[cuevana3gs] Provider cargado');
