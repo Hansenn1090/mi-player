@@ -1,4 +1,4 @@
-// Ruta: api/providers/cinehax.js
+// api/providers/cinehax.js
 const axios = require('axios');
 
 const BASE_URL = 'https://cinehaxplus.com';
