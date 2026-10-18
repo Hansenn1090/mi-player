@@ -2,7 +2,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 
 // ══════════════════════════════════════════════════════════════════
 // TMDB
@@ -25,10 +24,10 @@ const SKIP_PROVIDERS = new Set([
   'locopelis',
   'poseidonhd2',
   'pelisplushd',
-  'cuevana',       // cuevana.sc
+  'cuevana',
   'Cuevana',       
   'cinemaos',      
-  'cuevana3',      // <--- IGNORADO: cuevana3.now (el que fallaba)
+  'cuevana3',      
 ]);
 
 const DIRECT_PROVIDERS = new Set([
@@ -37,10 +36,8 @@ const DIRECT_PROVIDERS = new Set([
   'facilitoplay',
 ]);
 
-
-
 const MULTILANG_PROVIDERS = new Set([
-  'cinehax',       // <--- AGREGAR AQUÍ
+  'cinehax',       
   'cuevana3gs',    
   'cuevana3sc',    
   'pelispediais', 
@@ -49,7 +46,7 @@ const MULTILANG_PROVIDERS = new Set([
 ]);
 
 const PROVIDER_PRIORITY = [
-  'cinehax',       // <--- AGREGAR AQUÍ (Puedes ponerlo de primero si quieres)
+  'cinehax',       
   'cuevana3gs',    
   'pelispedia',
   'lamovie',
@@ -58,7 +55,7 @@ const PROVIDER_PRIORITY = [
   'pelispediais',
   'playlatinsrc',
   'unlimplay',
-]);
+];
 
 const KNOWN_LANGS = new Set([
   'latino', 'español', 'espanol', 'castellano',
@@ -105,10 +102,7 @@ console.log('[registry] Providers activos (en orden):', PROVIDER_FILES.join(' �
 function safeRequire(file) {
   try {
     const mod = require('./' + file);
-    if (!mod || typeof mod !== 'object') {
-      console.warn(`[registry] Skip (no exporta objeto): ${file}`);
-      return null;
-    }
+    if (!mod || typeof mod !== 'object') return null;
     return mod;
   } catch (err) {
     console.warn(`[registry] ❌ Error cargando ${file}:`, err.message);
@@ -187,8 +181,7 @@ function normalizeResult(result, providerName, byLang, forceLang = null) {
       const lang = canonicalLang(rawLang);
       if (!byLang[lang]) byLang[lang] = {};
 
-      if (typeof servers === 'string'
-          || (servers && typeof servers === 'object' && typeof servers.url === 'string')) {
+      if (typeof servers === 'string' || (servers && typeof servers === 'object' && typeof servers.url === 'string')) {
         const e = coerceEntry(servers, providerName, providerName);
         if (e) byLang[lang][providerName] = e;
       } else if (Array.isArray(servers)) {
@@ -226,7 +219,7 @@ async function getSourcesFromProviders(type, id) {
   if (tmdb && typeof tmdb.getMediaInfo === 'function') {
     try {
       const meta = await withTimeout(tmdb.getMediaInfo(id, type), 6000, 'tmdb');
-      title = meta.title || '';
+      title = meta.title || meta.original_title || '';
       year = String(meta.year || '');
       console.log(`[registry] TMDB: "${title}" (${year})`);
     } catch (e) {
@@ -235,8 +228,7 @@ async function getSourcesFromProviders(type, id) {
   }
 
   if (!title) {
-    console.warn('[registry] Sin título de TMDB, abortando');
-    return {};
+    console.warn('[registry] Sin título de TMDB. Se intentará buscar con ID si es compatible.');
   }
 
   for (const file of PROVIDER_FILES) {
@@ -244,10 +236,7 @@ async function getSourcesFromProviders(type, id) {
     if (!provider) continue;
 
     const fn = pickResolver(provider);
-    if (!fn) {
-      console.warn(`[registry] Skip (sin resolver): ${file}`);
-      continue;
-    }
+    if (!fn) continue;
 
     const providerName = provider.name || file;
     const isDirect = DIRECT_PROVIDERS.has(file);
@@ -294,14 +283,10 @@ async function getSourcesFromProviders(type, id) {
   const elapsed = Date.now() - t0;
   const total = Object.values(byLang).reduce((s, l) => s + Object.keys(l).length, 0);
   console.log(`[registry] ⏱️ ${elapsed}ms — ${total} servidores totales`);
-  console.log('[registry] Resultado:', JSON.stringify(byLang).slice(0, 500));
 
   return byLang;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// EXPORTS
-// ══════════════════════════════════════════════════════════════════
 module.exports = {
   getSourcesFromProviders,
   PROVIDER_FILES,
