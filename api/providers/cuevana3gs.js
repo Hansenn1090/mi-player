@@ -1,6 +1,8 @@
 // api/providers/cuevana3gs.js
 'use strict';
 
+console.log('🚨🚨 [cuevana3gs] ARCHIVO ENCONTRADO Y CARGADO EN MEMORIA 🚨🚨');
+
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -75,33 +77,22 @@ async function findDetailUrl(title, year, type) {
     return null;
   }
 
-  if (process.env.CUEVANA_DEBUG) {
-    require('fs').writeFileSync('/tmp/cuevana3gs-search.html', html);
-    console.log(`[cuevana3gs] HTML ${html.length}b | CF:${/cloudflare|just a moment/i.test(html)}`);
-  }
-
   const $ = cheerio.load(html);
   const candidates = [];
 
-  // FIX: Acepta URLs relativas y absolutas
   $(`a[href*="${pathPrefix}"]`).each((i, el) => {
     let href = $(el).attr('href') || '';
-    
-    // Normalizar a ruta relativa si viene absoluta
     if (href.startsWith('http')) {
       try { href = new URL(href).pathname; } catch(e) { return; }
     }
-    
     if (!href.startsWith(pathPrefix)) return;
     const rest = href.slice(pathPrefix.length).replace(/\/$/, '');
     if (!rest || rest.includes('/')) return;
 
-    // FIX: Extracción de título más robusta
     const imgAlt = $(el).find('img').attr('alt') || '';
     const hTag = $(el).find('h2, h3').first().text().trim();
     const parentTitle = $(el).parent().find('.Title').first().text().trim();
     const titleText = imgAlt || hTag || parentTitle || $(el).text().trim();
-    
     if (!titleText) return;
 
     candidates.push({ href, title: titleText });
@@ -224,5 +215,3 @@ module.exports = {
   search: async (title, year, tmdbId, type, lang) =>
     scrapeCuevana3Gs(title, year, tmdbId, type, lang),
 };
-
-console.log('[cuevana3gs] Provider cargado');
