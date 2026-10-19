@@ -9,15 +9,45 @@ const app = express();
 app.use(express.json());
 
 // ═════════════════════════════════════════════════════════════════
-// ⚙️ LISTA DE PROXIES (Los que me enviaste)
+// ⚙️ NUEVA LISTA DE PROXIES (La que me enviaste)
 // ═════════════════════════════════════════════════════════════════
 const PROXY_LIST = [
-    'http://138.117.85.217:999',      // Colombia
-    'http://89.238.200.8:180',      // Europa
-    'http://154.27.196.74:999',     // México
-    'http://45.174.242.14:2999',    // México (Élite)
-    'http://176.191.124.3:80',      // Francia
-    'http://200.174.198.32:8888'    // Brasil
+    'http://47.91.89.3:80',
+    'http://8.211.194.85:8443',
+    'http://47.91.120.198:80',
+    'http://138.117.85.217:999',
+    'http://8.211.49.86:2000',
+    'http://47.238.128.246:202',
+    'http://47.237.92.86:104',
+    'http://47.91.109.179:80',
+    'http://8.213.134.213:50',
+    'http://8.211.49.86:8008',
+    'http://8.213.134.213:41',
+    'http://47.251.87.74:85',
+    'http://149.129.226.9:920',
+    'http://8.137.38.48:8081',
+    'http://47.108.159.113:8008',
+    'http://8.148.24.225:8081',
+    'http://8.219.229.53:80',
+    'http://8.209.96.245:8080',
+    'http://47.119.20.8:8081',
+    'http://47.251.73.54:8081',
+    'http://8.209.96.245:8443',
+    'http://47.238.60.156:3128',
+    'http://47.251.74.38:5060',
+    'http://39.102.213.187:5060',
+    'http://8.221.138.111:8081',
+    'http://186.208.81.214:3129',
+    'http://47.92.152.43:8081',
+    'http://47.92.152.43:9098',
+    'http://8.215.15.163:8080',
+    'http://47.250.159.65:41',
+    'http://47.76.144.139:4145',
+    'http://47.92.152.43:8089',
+    'http://45.230.170.13:999',
+    'http://47.252.18.37:5060',
+    'http://8.209.96.245:1234',
+    'http://8.209.96.245:3128'
 ];
 
 // Función para mezclar los proxies (evita usar siempre el mismo)
@@ -325,5 +355,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`[server] Servidor escuchando en puerto ${PORT}`);
     console.log(`[server] TMDB_API_KEY ${process.env.TMDB_API_KEY ? 'presente ✅' : 'ausente ❌'}`);
-    console.log(`[server] PROXY LIST CARGADA: ${PROXY_LIST.length} proxies disponibles`);
+    console.log(`[server] PROXY LIST CARGADA: ${PROXY_LIST.length} proxies en rotación`);
 });
