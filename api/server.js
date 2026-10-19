@@ -3,21 +3,27 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent'); // 🔥 NUEVO: Importamos el agente
+const { HttpsProxyAgent } = require('https-proxy-agent'); // 🔥 Importamos el agente
 const app = express();
 
 app.use(express.json());
 
 // ═════════════════════════════════════════════════════════════════
-// ⚙️ CONFIGURACIÓN DEL PROXY RESIDENCIAL (CAMBIA ESTOS DATOS)
+// ⚙️ LISTA DE PROXIES (Los que me enviaste)
 // ═════════════════════════════════════════════════════════════════
-// Si no tienes un proveedor, puedes usar uno gratis para probar (o buscar uno de pago para producción)
-const PROXY_HOST = 'geo.iproyal.com';   // Reemplaza con tu host
-const PROXY_PORT = 12321;               // Reemplaza con tu puerto
-const PROXY_USER = 'tu_usuario';        // Reemplaza con tu usuario
-const PROXY_PASS = 'tu_contraseña';     // Reemplaza con tu contraseña
+const PROXY_LIST = [
+    'http://12.50.107.22:180',      // Estados Unidos
+    'http://89.238.200.8:180',      // Europa
+    'http://154.27.196.74:999',     // México
+    'http://45.174.242.14:2999',    // México (Élite)
+    'http://176.191.124.3:80',      // Francia
+    'http://200.174.198.32:8888'    // Brasil
+];
 
-const proxyAgent = new HttpsProxyAgent(`http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`);
+// Función para mezclar los proxies (evita usar siempre el mismo)
+function getRandomProxies() {
+    return [...PROXY_LIST].sort(() => Math.random() - 0.5);
+}
 
 // ═════════════════════════════════════════════════════════════════
 // STATIC — sirve player.html desde donde esté
@@ -153,7 +159,7 @@ app.get('/api/extract', async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// GET /api/proxy  →  RUTA CRÍTICA CON MANEJO DE COOKIES Y PROXY RESIDENCIAL
+// GET /api/proxy  →  RUTA CRÍTICA CON ROTACIÓN DE PROXIES
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/proxy', async (req, res) => {
     const { url: urlDestino, referer: refererDestino, cookie, m3u8Content } = req.query;
@@ -169,7 +175,7 @@ app.get('/api/proxy', async (req, res) => {
             console.log('[Proxy] ✅ Usando M3U8 pre-descargado por Puppeteer');
             contenidoM3U8 = decodeURIComponent(m3u8Content);
         } else {
-            // Si es un segmento .ts o no hay texto, hacemos la petición usando el Proxy Residencial
+            // 🔥 SI ES UN SEGMENTO .TS O KEY, USAMOS LA ROTACIÓN DE PROXIES
             const headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 'Referer': refererDestino || 'https://vimeos.net/',
@@ -181,16 +187,41 @@ app.get('/api/proxy', async (req, res) => {
                 headers['Cookie'] = decodeURIComponent(cookie);
             }
 
-            const response = await axios({
-                method: 'get',
-                url: urlDestino,
-                responseType: 'arraybuffer',
-                maxRedirects: 0,
-                validateStatus: (status) => status >= 200 && status < 400,
-                headers: headers,
-                httpsAgent: proxyAgent, // 🔥 AQUÍ USAMOS EL PROXY RESIDENCIAL
-                httpAgent: proxyAgent   // 🔥 AQUÍ USAMOS EL PROXY RESIDENCIAL
-            });
+            let response = null;
+            let lastError = null;
+            const proxiesToTry = getRandomProxies();
+
+            // Bucle para intentar con cada proxy hasta que uno funcione
+            for (const proxyUrl of proxiesToTry) {
+                try {
+                    console.log(`[Proxy] 🔄 Intentando con proxy: ${proxyUrl}`);
+                    const agent = new HttpsProxyAgent(proxyUrl);
+
+                    response = await axios({
+                        method: 'get',
+                        url: urlDestino,
+                        responseType: 'arraybuffer',
+                        maxRedirects: 0,
+                        validateStatus: (status) => status >= 200 && status < 400,
+                        headers: headers,
+                        httpsAgent: agent, // 🔥 Usamos el proxy
+                        httpAgent: agent,  // 🔥 Usamos el proxy
+                        timeout: 8000      // 8 segundos max por proxy para no colgar la app
+                    });
+                    
+                    // Si llegamos aquí, el proxy funcionó
+                    console.log(`[Proxy] ✅ Proxy exitoso: ${proxyUrl}`);
+                    break; 
+                } catch (err) {
+                    lastError = err;
+                    console.warn(`[Proxy] ⚠️ Falló proxy ${proxyUrl}:`, err.response ? err.response.status : err.message);
+                    // Continúa al siguiente proxy en el bucle
+                }
+            }
+
+            if (!response) {
+                throw new Error(`Todos los proxies fallaron. Último error: ${lastError?.message}`);
+            }
 
             // Manejo manual de redirecciones manteniendo la cookie
             if (response.status >= 300 && response.status < 400 && response.headers.location) {
@@ -294,5 +325,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`[server] Servidor escuchando en puerto ${PORT}`);
     console.log(`[server] TMDB_API_KEY ${process.env.TMDB_API_KEY ? 'presente ✅' : 'ausente ❌'}`);
-    console.log(`[server] PROXY RESIDENCIAL ${PROXY_USER !== 'tu_usuario' ? 'configurado ✅' : 'NO configurado ⚠️'}`);
+    console.log(`[server] PROXY LIST CARGADA: ${PROXY_LIST.length} proxies disponibles`);
 });
