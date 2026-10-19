@@ -486,32 +486,34 @@ function attachVideoEvents(vid) {
   vid.addEventListener('pause', () => { state.isPlaying = false; els.legendPlayLabel.textContent = 'Reproducir'; });
 }
 
-// [CORREGIDO FINAL] MountHls
-function mountHls(url, referer) {
+// 🔥 CORREGIDO: Añadido parámetro 'cookie'
+function mountHls(url, referer, cookie) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
   const vid = document.createElement('video');
   vid.playsInline = true; 
   vid.preload = 'metadata'; 
   vid.controls = false; 
-  // ⚠️ CRÍTICO: NO usar crossOrigin cuando pasas por tu propio proxy
-  // vid.crossOrigin = 'anonymous';  <-- ELIMINADO
   
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideoEvents(vid);
   
-  const finalUrl = PROXY_BASE
+  // 🔥 CORREGIDO: Añadimos la cookie a la URL del proxy
+  let finalUrl = PROXY_BASE
     ? (PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(referer || url))
     : url;
+    
+  if (cookie) {
+    finalUrl += '&cookie=' + encodeURIComponent(cookie);
+  }
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     const hlsConfig = { 
         maxBufferLength: 30, 
         startLevel: -1, 
         enableWorker: false
-        // ⚠️ CRÍTICO: Eliminado xhrSetup. El navegador maneja las cabeceras CORS.
     };
     const hls = new Hls(hlsConfig);
     _currentHls = hls;
@@ -519,7 +521,6 @@ function mountHls(url, referer) {
     hls.attachMedia(vid);
     
     hls.on(Hls.Events.MANIFEST_PARSED, () => { 
-        // Mutear para forzar autoplay en navegadores modernos
         vid.muted = true; 
         vid.play().catch((e) => {
             console.log("Autoplay bloqueado, se requiere clic:", e);
@@ -552,8 +553,6 @@ function mountMp4(url) {
   vid.playsInline = true; 
   vid.preload = 'metadata'; 
   vid.controls = false; 
-  // ⚠️ CRÍTICO: También eliminamos crossOrigin aquí
-  // vid.crossOrigin = 'anonymous';
   
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
@@ -584,6 +583,7 @@ function mountIframe(url) {
   updateScrubberUI();
 }
 
+// 🔥 CORREGIDO: Extraemos y devolvemos la cookie del JSON
 async function extractFromBackend(embedUrl, referer) {
   try {
     const params = new URLSearchParams({ url: embedUrl });
@@ -598,7 +598,9 @@ async function extractFromBackend(embedUrl, referer) {
     if (!r.ok) return null;
     const data = await r.json();
     if (data.error || !data.stream) return null;
-    return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer || referer };
+    
+    // 🔥 Devolvemos 'cookie' para que llegue a mountHls
+    return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer || referer, cookie: data.cookie };
   } catch (e) { 
     console.warn('[extract] Error o Timeout:', e.message);
     return null; 
@@ -634,7 +636,8 @@ async function selectServer(num) {
 
   const extracted = await extractFromBackend(srv.url, ref);
   if (extracted && extracted.stream) {
-    if (extracted.kind === 'hls') mountHls(extracted.stream, extracted.referer);
+    // 🔥 CORREGIDO: Pasamos extracted.cookie a mountHls
+    if (extracted.kind === 'hls') mountHls(extracted.stream, extracted.referer, extracted.cookie);
     else if (extracted.kind === 'mp4') mountMp4(extracted.stream);
     else mountIframe(srv.url);
     return;
