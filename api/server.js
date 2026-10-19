@@ -12,9 +12,9 @@ const cors    = require('cors');
 const path    = require('path');
 const { URL } = require('url');
 
-// 🔥 IMPORTANTE: Importa tus scrapers de Puppeteer aquí
-// Ejemplo: const { getServers, extractStream, proxyStream } = require('./scrapers');
-
+// ─────────────────────────────────────────────────────────────────────
+//  CONFIGURACIÓN
+// ─────────────────────────────────────────────────────────────────────
 const CONFIG = {
   PORT: process.env.PORT || 10000,
   VIMEO_UA: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -281,15 +281,22 @@ app.get('/api/vimeo/proxy', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 // 🔥 TUS RUTAS EXISTENTES DE PUPPETEER (Películas)
 // ─────────────────────────────────────────────────────────────────────
-// ⚠️ AQUÍ DEBES PEGAR TUS RUTAS ANTIGUAS DE /api/servers, /api/extract y /api/proxy
-// Ejemplo:
-/*
-app.get('/api/servers', async (req, res) => {
-  // Tu lógica de Puppeteer aquí
-});
-*/
-// ⚠️ Si las rutas las tienes en otro archivo (ej. ./routes/movies.js), impórtalas aquí:
-// app.use('/api', require('./routes/movies'));
+// ⚠️ PEGA AQUÍ TUS RUTAS DE /api/servers, /api/extract y /api/proxy
+// 
+// Ejemplo de cómo debería verse:
+// app.get('/api/servers', async (req, res) => {
+//   const { id, type } = req.query;
+//   // ... tu código de puppeteer ...
+// });
+// 
+// app.get('/api/extract', async (req, res) => {
+//   const { url } = req.query;
+//   // ... tu código de extracción ...
+// });
+// 
+// ⚠️ Si las tienes en otro archivo, impórtalas así:
+// const movieRoutes = require('./routes/movies');
+// app.use('/api', movieRoutes);
 
 // ── SERVIR ARCHIVOS ESTÁTICOS (Para que funcione player.html)
 app.use(express.static(path.join(__dirname))); 
