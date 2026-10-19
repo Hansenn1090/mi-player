@@ -486,8 +486,8 @@ function attachVideoEvents(vid) {
   vid.addEventListener('pause', () => { state.isPlaying = false; els.legendPlayLabel.textContent = 'Reproducir'; });
 }
 
-// 🔥 CORREGIDO: Añadido parámetro 'cookie'
-function mountHls(url, referer, cookie) {
+// 🔥 CORREGIDO: Añadido parámetro 'm3u8Content'
+function mountHls(url, referer, cookie, m3u8Content) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
   const vid = document.createElement('video');
@@ -500,13 +500,16 @@ function mountHls(url, referer, cookie) {
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideoEvents(vid);
   
-  // 🔥 CORREGIDO: Añadimos la cookie a la URL del proxy
+  // 🔥 CORREGIDO: Añadimos la cookie y el m3u8Content a la URL del proxy
   let finalUrl = PROXY_BASE
     ? (PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(referer || url))
     : url;
     
   if (cookie) {
     finalUrl += '&cookie=' + encodeURIComponent(cookie);
+  }
+  if (m3u8Content) {
+    finalUrl += '&m3u8Content=' + encodeURIComponent(m3u8Content);
   }
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
@@ -583,7 +586,7 @@ function mountIframe(url) {
   updateScrubberUI();
 }
 
-// 🔥 CORREGIDO: Extraemos y devolvemos la cookie del JSON
+// 🔥 CORREGIDO: Extraemos y devolvemos la cookie y el m3u8Content del JSON
 async function extractFromBackend(embedUrl, referer) {
   try {
     const params = new URLSearchParams({ url: embedUrl });
@@ -599,8 +602,14 @@ async function extractFromBackend(embedUrl, referer) {
     const data = await r.json();
     if (data.error || !data.stream) return null;
     
-    // 🔥 Devolvemos 'cookie' para que llegue a mountHls
-    return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer || referer, cookie: data.cookie };
+    // 🔥 Devolvemos 'cookie' y 'm3u8Content' para que lleguen a mountHls
+    return { 
+      stream: data.stream, 
+      kind: data.kind || 'hls', 
+      referer: data.referer || referer, 
+      cookie: data.cookie,
+      m3u8Content: data.m3u8Content 
+    };
   } catch (e) { 
     console.warn('[extract] Error o Timeout:', e.message);
     return null; 
@@ -636,8 +645,8 @@ async function selectServer(num) {
 
   const extracted = await extractFromBackend(srv.url, ref);
   if (extracted && extracted.stream) {
-    // 🔥 CORREGIDO: Pasamos extracted.cookie a mountHls
-    if (extracted.kind === 'hls') mountHls(extracted.stream, extracted.referer, extracted.cookie);
+    // 🔥 CORREGIDO: Pasamos extracted.cookie y extracted.m3u8Content a mountHls
+    if (extracted.kind === 'hls') mountHls(extracted.stream, extracted.referer, extracted.cookie, extracted.m3u8Content);
     else if (extracted.kind === 'mp4') mountMp4(extracted.stream);
     else mountIframe(srv.url);
     return;
