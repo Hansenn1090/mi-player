@@ -198,22 +198,33 @@ async function extractStream(url) {
             try { referer = new URL(finalUrl).origin + '/'; } catch (_) {}
 
             // ═══════════════════════════════════════════════════════
-            // 🔥 AQUÍ EXTRAEMOS LA COOKIE DE LA SESIÓN
+            // 🔥 EXTRAEMOS TODAS LAS COOKIES USANDO CDP (Subdominios incluidos)
             // ═══════════════════════════════════════════════════════
             let cookieString = '';
             try {
-                const cookies = await page.cookies();
-                cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-                console.log(`[Puppeteer] 🍪 Cookies capturadas: ${cookies.length}`);
+                const client = await page.target().createCDPSession();
+                const { cookies } = await client.send('Network.getAllCookies');
+                
+                // Filtramos cookies relevantes para Vimeos para no enviar basura
+                const vimeosCookies = cookies.filter(c => c.domain.includes('vimeos'));
+                const cookiesToUse = vimeosCookies.length > 0 ? vimeosCookies : cookies;
+                
+                cookieString = cookiesToUse.map(c => `${c.name}=${c.value}`).join('; ');
+                console.log(`[Puppeteer] 🍪 Cookies capturadas (CDP): ${cookiesToUse.length}`);
             } catch (err) {
-                console.warn('[Puppeteer] Error capturando cookies:', err.message);
+                console.warn('[Puppeteer] Error capturando cookies con CDP, usando fallback:', err.message);
+                // Fallback al método tradicional si CDP falla
+                try {
+                    const cookies = await page.cookies();
+                    cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                } catch (e) {}
             }
 
             return {
                 stream: captured.url,
                 kind: captured.kind,
                 referer,
-                cookie: cookieString // <--- ¡Enviamos la cookie al extractor!
+                cookie: cookieString // <--- Cookie lista para inyectarse en el proxy
             };
         }
 
