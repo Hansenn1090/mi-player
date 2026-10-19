@@ -1,11 +1,12 @@
 // api/core/puppeteer-extractor.js
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const os = require('os');
 const path = require('path');
 
-// ═════════════════════════════════════════════════════════════════
-// POOL DE NAVEGADOR — reutiliza una sola instancia de Chromium
-// ═════════════════════════════════════════════════════════════════
+// 🔥 ACTIVAMOS EL MODO INVISIBLE
+puppeteer.use(StealthPlugin());
+
 let _browserPromise = null;
 let _userDataDir = null;
 
@@ -18,7 +19,7 @@ function getBrowser() {
             'puppeteer_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
         );
 
-        console.log('[Puppeteer] Lanzando Chromium...');
+        console.log('[Puppeteer] Lanzando Chromium Stealth...');
         const browser = await puppeteer.launch({
             headless: 'new',
             userDataDir: _userDataDir,
@@ -30,10 +31,6 @@ function getBrowser() {
                 '--no-first-run',
                 '--no-zygote',
                 '--disable-gpu',
-                '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-renderer-backgrounding',
-                '--disable-blink-features=AutomationControlled',
                 '--window-size=1280,720',
             ],
             timeout: 30000,
@@ -50,9 +47,7 @@ async function closeBrowser() {
     if (!_browserPromise) return;
     try {
         const browser = await _browserPromise;
-        if (browser && browser.isConnected()) {
-            await browser.close();
-        }
+        if (browser && browser.isConnected()) await browser.close();
     } catch (e) {
         console.warn('[Puppeteer] Error al cerrar:', e.message);
     } finally {
@@ -64,9 +59,6 @@ process.on('SIGTERM', closeBrowser);
 process.on('SIGINT', closeBrowser);
 process.on('exit', () => { closeBrowser().catch(() => {}); });
 
-// ═════════════════════════════════════════════════════════════════
-// TIMEOUT HELPER
-// ═════════════════════════════════════════════════════════════════
 function withTimeout(promise, ms, label = 'op') {
     return Promise.race([
         promise,
@@ -76,9 +68,6 @@ function withTimeout(promise, ms, label = 'op') {
     ]);
 }
 
-// ═════════════════════════════════════════════════════════════════
-// EXTRACCIÓN PRINCIPAL
-// ═════════════════════════════════════════════════════════════════
 async function extractStream(url) {
     if (!url || !url.startsWith('http')) return null;
 
@@ -88,14 +77,6 @@ async function extractStream(url) {
     try {
         const browser = await getBrowser();
         page = await browser.newPage();
-
-        // ─── Anti-detección ───────────────────────────────────────
-        await page.evaluateOnNewDocument(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en'] });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            window.chrome = { runtime: {} };
-        });
 
         await page.setUserAgent(
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -109,7 +90,6 @@ async function extractStream(url) {
         let captured = null;
         let finalUrl = url;
 
-        // Captura en request
         page.on('request', (req) => {
             if (captured) return;
             const reqUrl = req.url();
@@ -122,7 +102,6 @@ async function extractStream(url) {
             }
         });
 
-        // Captura en response
         page.on('response', (res) => {
             if (captured) return;
             const resUrl = res.url();
@@ -130,20 +109,15 @@ async function extractStream(url) {
             if (/\.m3u8(\?|$)/i.test(resUrl) || /mpegurl/i.test(ct)) {
                 captured = { url: resUrl, kind: 'hls' };
                 console.log('[Puppeteer] 📡 m3u8 (response):', resUrl.slice(0, 130));
-            } else if (/\.mp4(\?|$)/i.test(resUrl) || /^video\//i.test(ct)) {
-                captured = { url: resUrl, kind: 'mp4' };
-                console.log('[Puppeteer] 📡 mp4 (response):', resUrl.slice(0, 130));
             }
         });
 
         page.on('popup', (p) => p.close().catch(() => {}));
 
-        // ─── Navegar ──────────────────────────────────────────────
         try {
             await withTimeout(
                 page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }),
-                22000,
-                'page.goto'
+                22000, 'page.goto'
             );
             finalUrl = page.url();
             console.log('[Puppeteer] URL final:', finalUrl);
@@ -151,13 +125,11 @@ async function extractStream(url) {
             console.warn('[Puppeteer] goto falló:', e.message);
         }
 
-        // ─── Esperar a que aparezca el stream (hasta 12s) ─────────
         const start = Date.now();
         while (!captured && Date.now() - start < 12000) {
             await new Promise(r => setTimeout(r, 300));
         }
 
-        // ─── Si aún no hay stream, click en play ──────────────────
         if (!captured) {
             console.log('[Puppeteer] Sin stream, intentando click en play...');
             const frames = page.frames();
@@ -165,11 +137,7 @@ async function extractStream(url) {
                 try {
                     await withTimeout(
                         frame.evaluate(() => {
-                            const selectors = [
-                                '.play-button', '.vjs-big-play-button',
-                                'button[aria-label*="play" i]', '.jw-display-icon-container',
-                                '.jw-icon-playback', 'video',
-                            ];
+                            const selectors = ['.play-button', '.vjs-big-play-button', 'button[aria-label*="play" i]', 'video'];
                             for (const sel of selectors) {
                                 const el = document.querySelector(sel);
                                 if (el) {
@@ -178,66 +146,60 @@ async function extractStream(url) {
                                     return sel;
                                 }
                             }
-                        }),
-                        3000, 'click-play'
+                        }), 3000, 'click-play'
                     ).catch(() => {});
                 } catch (_) {}
             }
-
             const start2 = Date.now();
             while (!captured && Date.now() - start2 < 8000) {
                 await new Promise(r => setTimeout(r, 300));
             }
         }
 
-        // ─── Resultado ────────────────────────────────────────────
         if (captured) {
             console.log(`[Puppeteer] ✅ ${captured.kind.toUpperCase()}:`, captured.url.slice(0, 130));
 
             let referer = url;
             try { referer = new URL(finalUrl).origin + '/'; } catch (_) {}
 
-            // ═══════════════════════════════════════════════════════
-            // 🔥 EXTRAEMOS TODAS LAS COOKIES USANDO CDP (Subdominios incluidos)
-            // ═══════════════════════════════════════════════════════
+            // 🔥 EXTRAEMOS COOKIES
             let cookieString = '';
             try {
-                const client = await page.target().createCDPSession();
-                const { cookies } = await client.send('Network.getAllCookies');
-                
-                // Filtramos cookies relevantes para Vimeos para no enviar basura
-                const vimeosCookies = cookies.filter(c => c.domain.includes('vimeos'));
-                const cookiesToUse = vimeosCookies.length > 0 ? vimeosCookies : cookies;
-                
-                cookieString = cookiesToUse.map(c => `${c.name}=${c.value}`).join('; ');
-                console.log(`[Puppeteer] 🍪 Cookies capturadas (CDP): ${cookiesToUse.length}`);
-            } catch (err) {
-                console.warn('[Puppeteer] Error capturando cookies con CDP, usando fallback:', err.message);
-                // Fallback al método tradicional si CDP falla
+                const cookies = await page.cookies();
+                cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                console.log(`[Puppeteer] 🍪 Cookies capturadas: ${cookies.length}`);
+            } catch (err) {}
+
+            // 🔥 NUEVO: DESCARGAMOS EL TEXTO DEL M3U8 USANDO EL NAVEGADOR (Evita el 403 de axios)
+            let m3u8Content = null;
+            if (captured.kind === 'hls') {
                 try {
-                    const cookies = await page.cookies();
-                    cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-                } catch (e) {}
+                    m3u8Content = await page.evaluate(async (m3u8Url) => {
+                        const res = await fetch(m3u8Url);
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        return await res.text();
+                    }, captured.url);
+                    console.log('[Puppeteer] 📄 Contenido M3U8 obtenido, longitud:', m3u8Content.length);
+                } catch (e) {
+                    console.warn('[Puppeteer] ⚠️ Falló la descarga del M3U8 en el navegador:', e.message);
+                }
             }
 
             return {
                 stream: captured.url,
                 kind: captured.kind,
                 referer,
-                cookie: cookieString // <--- Cookie lista para inyectarse en el proxy
+                cookie: cookieString,
+                m3u8Content: m3u8Content // <--- Enviamos el texto del M3U8
             };
         }
 
-        console.log('[Puppeteer] ⚠️ No se encontró stream');
         return null;
-
     } catch (err) {
         console.warn('[Puppeteer] Error:', err.message);
         return null;
     } finally {
-        if (page) {
-            try { await page.close(); } catch (_) {}
-        }
+        if (page) { try { await page.close(); } catch (_) {} }
     }
 }
 
