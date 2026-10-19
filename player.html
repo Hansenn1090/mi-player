@@ -304,9 +304,9 @@
 </main>
 
 <script>
-// 🔥 CONFIGURACIÓN DE TUS APIS
-const API_BASE = 'https://mi-player-api.onrender.com'; // Tu API actual de películas
-const VIMEO_API = 'https://api.onrender.com'; // ⚠️ PON AQUÍ TU URL DE RENDER (API Vimeo)
+// 🔥 APUNTAMOS A LA MISMA URL DONDE ESTÁ ALojADO ESTE HTML
+const API_BASE = window.location.origin; 
+const VIMEO_API = API_BASE; 
 const PROXY_BASE = API_BASE + '/api/proxy';
 
 const HLS_HOSTS = /vimeos|vimeo|streamwish|filelions|vidhide|vidmoly|voe|filemoon|doodstream|mixdrop|streamtape|okru|filelion|embedwish|hglink|flaswish|morencius|minochinos|callistanise|uqload|powvideo|streamplay|fastream|mp4upload|streamsb|streamhide|netu|vinovo|embedgram|vidspeed|nupload/i;
@@ -398,11 +398,7 @@ function triggerActionFlash(iconMarkup) {
 
 function normalizeEntry(entry, fallbackKey) {
   if (entry && typeof entry === 'object' && typeof entry.url === 'string') {
-    return {
-      url: entry.url,
-      referer: entry.referer || null,
-      server: entry.server || fallbackKey,
-    };
+    return { url: entry.url, referer: entry.referer || null, server: entry.server || fallbackKey };
   }
   if (typeof entry === 'string') {
     return { url: entry, referer: null, server: fallbackKey };
@@ -436,7 +432,6 @@ function renderServers() {
   const list = els.serversList;
   list.innerHTML = '';
   
-  // 🔥 Añadimos Vimeo como un "Servidor" extra si es un enlace de Vimeo
   if (state.currentAudio === 'vimeo') {
     els.serversStatusBadge.textContent = 'ONLINE';
     els.serversStatusBadge.className = 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
@@ -484,10 +479,7 @@ function mountHls(url, referer, cookie, m3u8Content) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
   const vid = document.createElement('video');
-  vid.playsInline = true; 
-  vid.preload = 'metadata'; 
-  vid.controls = false; 
-  
+  vid.playsInline = true; vid.preload = 'metadata'; vid.controls = false; 
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
@@ -530,10 +522,7 @@ function mountMp4(url) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
   const vid = document.createElement('video');
-  vid.playsInline = true; 
-  vid.preload = 'metadata'; 
-  vid.controls = false; 
-  
+  vid.playsInline = true; vid.preload = 'metadata'; vid.controls = false; 
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
@@ -579,7 +568,7 @@ async function extractFromBackend(embedUrl, referer) {
   }
 }
 
-// 🔥 NUEVO: Controlador exclusivo para Vimeo usando tu misma lógica de mountHls/mountMp4
+// 🔥 VIMEO AHORA CONTROLA EL REPRODUCTOR NATIVO
 async function loadVimeoStream(videoUrlOrId) {
   try {
     showToast('Conectando con Vimeo...');
@@ -587,11 +576,11 @@ async function loadVimeoStream(videoUrlOrId) {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Error al extraer');
 
-    // Usamos tus funciones que conectan el <video> a la barra de progreso y controles
     if (data.format === 'hls') {
-      mountHls(data.directUrl, null, null, null); 
+      // 🔥 Aquí usamos el proxy propio de Vimeo, pasando la URL ya proxificada
+      mountHls(data.streamUrl, null, null, null); 
     } else {
-      mountMp4(data.directUrl);
+      mountMp4(data.streamUrl);
     }
 
     if (data.title) {
@@ -654,7 +643,6 @@ async function selectServer(num) {
 async function loadMovie(id, type) {
   state.movieId = id; state.movieType = type;
 
-  // 🔥 Si el ID es un enlace de Vimeo, forzamos el modo Vimeo
   if (id.includes('vimeo.com') || /^\d{7,10}$/.test(id)) {
     state.currentAudio = 'vimeo';
     document.querySelectorAll('#group-audio-options button').forEach(b => b.classList.remove('tv-btn-active'));
