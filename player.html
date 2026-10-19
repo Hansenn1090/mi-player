@@ -304,7 +304,7 @@
 </main>
 
 <script>
-// 🔥 DETECCIÓN AUTOMÁTICA DE LA API (Funciona tanto en local como en Render)
+// 🔥 DETECCIÓN AUTOMÁTICA DE LA API
 const API_BASE = window.location.origin; 
 const VIMEO_API = API_BASE; 
 const PROXY_BASE = API_BASE + '/api/proxy';
@@ -624,6 +624,13 @@ async function selectServer(num) {
     return;
   }
 
+  // 🔥 AQUÍ DETECTAMOS SI EL SERVIDOR ES DE VIMEO
+  if (srv.url.includes('vimeo.com') || srv.host.includes('vimeo')) {
+    console.log(`[player] Server ${num} → Vimeo detectado en la lista`);
+    await loadVimeoStream(srv.url);
+    return;
+  }
+
   const byUrl = detectByUrl(srv.url);
   if (byUrl === 'hls') { mountHls(srv.url, ref); return; }
   if (byUrl === 'mp4') { mountMp4(srv.url); return; }
@@ -642,7 +649,6 @@ async function selectServer(num) {
 async function loadMovie(id, type) {
   state.movieId = id; state.movieType = type;
 
-  // 🔥 Detectar si es un enlace de Vimeo
   if (id.includes('vimeo.com') || /^\d{7,10}$/.test(id)) {
     state.currentAudio = 'vimeo';
     document.querySelectorAll('#group-audio-options button').forEach(b => b.classList.remove('tv-btn-active'));
