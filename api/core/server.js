@@ -5,12 +5,12 @@ const axios = require('axios');
 
 const app = express();
 
-// 1. Configuración de CORS (Tus dominios permitidos)
+// 1. Configuración de CORS
 app.use(cors({
   origin: [
-    'https://mi-player.netlify.app',    // tu frontend
-    /\.netlify\.app$/,                   // cualquier preview de Netlify
-    /\.onrender\.com$/,                  // tu propio backend
+    'https://mi-player.netlify.app',
+    /\.netlify\.app$/,
+    /\.onrender\.com$/,
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: false,
@@ -18,10 +18,10 @@ app.use(cors({
 
 // ... Aquí van tus otras rutas (ej: /api/sources, /api/servers, etc) ...
 
-// 2. RUTA DEL PROXY (Optimizada para Vimeo/HLS)
+// 2. RUTA DEL PROXY (Optimizada para Vimeo/Vimeos)
 app.get('/api/proxy', async (req, res) => {
     const urlDestino = req.query.url;
-    const refererDestino = req.query.referer || 'https://videoapp.zip/';
+    const refererDestino = req.query.referer || 'https://vimeos.net/';
     
     if (!urlDestino) return res.status(400).send('Falta el parámetro URL');
 
@@ -33,15 +33,13 @@ app.get('/api/proxy', async (req, res) => {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36',
                 'Referer': refererDestino,
-                'Origin': refererDestino.replace(/\/$/, '') 
+                'Origin': 'https://vimeos.net' // Forzamos el Origin para Vimeo
             }
         });
 
         if (urlDestino.includes('.m3u8')) {
             let contenidoM3U8 = response.data;
             const baseUrl = urlDestino.substring(0, urlDestino.lastIndexOf('/') + 1);
-            
-            // Construir la URL absoluta de tu proxy de Render
             const miProxy = `${req.protocol}://${req.get('host')}/api/proxy`;
 
             // Reescribir llaves de encriptación
@@ -49,7 +47,7 @@ app.get('/api/proxy', async (req, res) => {
                 const urlAbsoluta = new URL(p1, baseUrl).href;
                 return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}&referer=${encodeURIComponent(refererDestino)}"`;
             });
-            
+
             // Reescribir segmentos de video (.ts)
             contenidoM3U8 = contenidoM3U8.split('\n').map(line => {
                 if (line && !line.startsWith('#')) {
@@ -60,9 +58,11 @@ app.get('/api/proxy', async (req, res) => {
             }).join('\n');
 
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            res.setHeader('Access-Control-Allow-Origin', '*');
             return res.send(contenidoM3U8);
         } else {
             res.setHeader('Content-Type', response.headers['content-type'] || 'video/MP2T');
+            res.setHeader('Access-Control-Allow-Origin', '*');
             return response.data.pipe(res);
         }
     } catch (error) {
@@ -71,7 +71,6 @@ app.get('/api/proxy', async (req, res) => {
     }
 });
 
-// 3. Escuchar el puerto (Render usa el 10000 por defecto)
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);
