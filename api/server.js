@@ -12,7 +12,7 @@ app.use(express.json());
 // ⚙️ LISTA DE PROXIES (Los que me enviaste)
 // ═════════════════════════════════════════════════════════════════
 const PROXY_LIST = [
-    'http://12.50.107.22:180',      // Estados Unidos
+    'http://138.117.85.217:999',      // Colombia
     'http://89.238.200.8:180',      // Europa
     'http://154.27.196.74:999',     // México
     'http://45.174.242.14:2999',    // México (Élite)
