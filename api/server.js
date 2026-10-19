@@ -2,7 +2,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const axios = require('axios'); // Necesario para el proxy
+const axios = require('axios');
 const app = express();
 
 app.use(express.json());
@@ -99,7 +99,7 @@ app.get('/api/servers', async (req, res) => {
 // GET /api/extract?url=...  →  extrae .m3u8 / .mp4 de un embed
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/extract', async (req, res) => {
-    const { url, referer } = req.query; // Recibimos el referer desde el frontend
+    const { url, referer } = req.query;
 
     if (!url) {
         return res.status(400).json({ error: 'Falta parámetro url' });
@@ -120,17 +120,18 @@ app.get('/api/extract', async (req, res) => {
             return res.json({ error: 'Extractor sin función extract' });
         }
 
-        // Pasamos el referer al extractor (si tu función lo soporta como segundo parámetro)
         const result = await fn(url, { referer: referer || url });
 
         if (!result || !result.stream) {
             return res.json({ error: 'No se pudo extraer el stream' });
         }
 
+        // 🔥 AQUÍ SE DEVUELVE LA COOKIE AL REPRODUCTOR
         res.json({
             stream:  result.stream,
             kind:    result.kind    || 'hls',
-            referer: result.referer || referer || url // Devolvemos el referer
+            referer: result.referer || referer || url,
+            cookie:  result.cookie  || '' 
         });
     } catch (err) {
         console.error('[server] /api/extract:', err);
@@ -139,35 +140,47 @@ app.get('/api/extract', async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// GET /api/proxy  →  RUTA CRÍTICA RECUPERADA E INTEGRADA
+// GET /api/proxy  →  RUTA CRÍTICA CON MANEJO DE COOKIES
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/proxy', async (req, res) => {
-    const urlDestino = req.query.url;
-    const refererDestino = req.query.referer || 'https://vimeos.net/';
+    // 🔥 RECIBIMOS LA COOKIE DESDE EL FRONTEND
+    const { url: urlDestino, referer: refererDestino, cookie } = req.query;
     
     if (!urlDestino) return res.status(400).send('Falta el parámetro URL');
 
     try {
         const isM3U8 = urlDestino.includes('.m3u8') || urlDestino.includes('.txt');
         
+        // Construimos los headers
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Referer': refererDestino || 'https://vimeos.net/',
+            'Origin': 'https://vimeos.net',
+            'Accept': '*/*'
+        };
+
+        // 🔥 SI HAY COOKIE, LA INYECTAMOS PARA EVITAR EL 403
+        if (cookie) {
+            headers['Cookie'] = decodeURIComponent(cookie);
+        }
+
         const response = await axios({
             method: 'get',
             url: urlDestino,
-            responseType: 'arraybuffer', // Siempre arraybuffer
-            maxRedirects: 0,             // CRÍTICO: No perder headers en redirecciones
+            responseType: 'arraybuffer',
+            maxRedirects: 0,
             validateStatus: (status) => status >= 200 && status < 400,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                'Referer': refererDestino,
-                'Origin': 'https://vimeos.net',
-                'Accept': '*/*'
-            }
+            headers: headers
         });
 
-        // Manejo manual de redirecciones para mantener el Referer
+        // Manejo manual de redirecciones manteniendo la cookie
         if (response.status >= 300 && response.status < 400 && response.headers.location) {
             const redirectUrl = response.headers.location;
-            return res.redirect(`/api/proxy?url=${encodeURIComponent(redirectUrl)}&referer=${encodeURIComponent(refererDestino)}`);
+            let redirectProxy = `/api/proxy?url=${encodeURIComponent(redirectUrl)}&referer=${encodeURIComponent(refererDestino)}`;
+            if (cookie) {
+                redirectProxy += `&cookie=${encodeURIComponent(cookie)}`;
+            }
+            return res.redirect(redirectProxy);
         }
 
         if (isM3U8) {
@@ -177,20 +190,27 @@ app.get('/api/proxy', async (req, res) => {
             const baseUrl = urlObj.href.substring(0, urlObj.href.lastIndexOf('/') + 1);
             const miProxy = `${req.protocol}://${req.get('host')}/api/proxy`;
 
-            // Reescribir segmentos y llaves
+            // 🔥 CREAMOS EL SUFIJO CON LA COOKIE PARA LOS SEGMENTOS
+            let urlSuffix = `&referer=${encodeURIComponent(refererDestino)}`;
+            if (cookie) {
+                urlSuffix += `&cookie=${encodeURIComponent(cookie)}`;
+            }
+
+            // Reescribir llaves
             contenidoM3U8 = contenidoM3U8.replace(/URI="([^"]+)"/g, (match, p1) => {
                 try {
                     const urlAbsoluta = new URL(p1, baseUrl).href;
-                    return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}&referer=${encodeURIComponent(refererDestino)}"`;
+                    return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}"`;
                 } catch (e) { return match; }
             });
 
+            // Reescribir segmentos
             contenidoM3U8 = contenidoM3U8.split('\n').map(line => {
                 const cleanLine = line.trim(); 
                 if (cleanLine && !cleanLine.startsWith('#')) {
                     try {
                         const urlAbsoluta = new URL(cleanLine, baseUrl).href;
-                        return `${miProxy}?url=${encodeURIComponent(urlAbsoluta)}&referer=${encodeURIComponent(refererDestino)}`;
+                        return `${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}`;
                     } catch (e) { return cleanLine; }
                 }
                 return cleanLine;
