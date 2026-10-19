@@ -3,9 +3,21 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent'); // 🔥 NUEVO: Importamos el agente
 const app = express();
 
 app.use(express.json());
+
+// ═════════════════════════════════════════════════════════════════
+// ⚙️ CONFIGURACIÓN DEL PROXY RESIDENCIAL (CAMBIA ESTOS DATOS)
+// ═════════════════════════════════════════════════════════════════
+// Si no tienes un proveedor, puedes usar uno gratis para probar (o buscar uno de pago para producción)
+const PROXY_HOST = 'geo.iproyal.com';   // Reemplaza con tu host
+const PROXY_PORT = 12321;               // Reemplaza con tu puerto
+const PROXY_USER = 'tu_usuario';        // Reemplaza con tu usuario
+const PROXY_PASS = 'tu_contraseña';     // Reemplaza con tu contraseña
+
+const proxyAgent = new HttpsProxyAgent(`http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`);
 
 // ═════════════════════════════════════════════════════════════════
 // STATIC — sirve player.html desde donde esté
@@ -141,10 +153,9 @@ app.get('/api/extract', async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// GET /api/proxy  →  RUTA CRÍTICA CON MANEJO DE COOKIES Y M3U8 PRE-DESCARGADO
+// GET /api/proxy  →  RUTA CRÍTICA CON MANEJO DE COOKIES Y PROXY RESIDENCIAL
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/proxy', async (req, res) => {
-    // 🔥 RECIBIMOS LA COOKIE Y EL M3U8 CONTENT DESDE EL FRONTEND
     const { url: urlDestino, referer: refererDestino, cookie, m3u8Content } = req.query;
     
     if (!urlDestino) return res.status(400).send('Falta el parámetro URL');
@@ -158,7 +169,7 @@ app.get('/api/proxy', async (req, res) => {
             console.log('[Proxy] ✅ Usando M3U8 pre-descargado por Puppeteer');
             contenidoM3U8 = decodeURIComponent(m3u8Content);
         } else {
-            // Si es un segmento .ts o no hay texto, hacemos la petición normal con Axios
+            // Si es un segmento .ts o no hay texto, hacemos la petición usando el Proxy Residencial
             const headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 'Referer': refererDestino || 'https://vimeos.net/',
@@ -176,7 +187,9 @@ app.get('/api/proxy', async (req, res) => {
                 responseType: 'arraybuffer',
                 maxRedirects: 0,
                 validateStatus: (status) => status >= 200 && status < 400,
-                headers: headers
+                headers: headers,
+                httpsAgent: proxyAgent, // 🔥 AQUÍ USAMOS EL PROXY RESIDENCIAL
+                httpAgent: proxyAgent   // 🔥 AQUÍ USAMOS EL PROXY RESIDENCIAL
             });
 
             // Manejo manual de redirecciones manteniendo la cookie
@@ -281,4 +294,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`[server] Servidor escuchando en puerto ${PORT}`);
     console.log(`[server] TMDB_API_KEY ${process.env.TMDB_API_KEY ? 'presente ✅' : 'ausente ❌'}`);
+    console.log(`[server] PROXY RESIDENCIAL ${PROXY_USER !== 'tu_usuario' ? 'configurado ✅' : 'NO configurado ⚠️'}`);
 });
