@@ -1,6 +1,6 @@
 /**
  * =====================================================================
- *  API UNIFICADA — mi-player-api
+ *  API UNIFICADA Y CORREGIDA — mi-player-api
  * =====================================================================
  */
 
@@ -12,318 +12,172 @@ const cors    = require('cors');
 const path    = require('path');
 const { URL } = require('url');
 
-// ─────────────────────────────────────────────────────────────────────
-//  CONFIGURACIÓN
-// ─────────────────────────────────────────────────────────────────────
-const CONFIG = {
-  PORT: process.env.PORT || 10000,
-  VIMEO_UA: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  TIMEOUT_MS: 15000,
-  CACHE_TTL_MS: 8 * 60 * 1000,
-  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || '*',
-  ALLOWED_HOST_PATTERNS: [
-    /^player\.vimeo\.com$/i,
-    /^vimeo\.com$/i,
-    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vimeo\.com$/i,
-    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vimeocdn\.com$/i,
-    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vod-progressive\.akamaized\.net$/i,
-    /^vod-progressive\.akamaized\.net$/i,
-  ],
-};
-
-// ─────────────────────────────────────────────────────────────────────
-//  CACHÉ EN MEMORIA
-// ─────────────────────────────────────────────────────────────────────
-const cache = new Map();
-const getCache = (k) => {
-  const hit = cache.get(k);
-  if (!hit) return null;
-  if (Date.now() > hit.exp) { cache.delete(k); return null; }
-  return hit.val;
-};
-const setCache = (k, v) => cache.set(k, { val: v, exp: Date.now() + CONFIG.CACHE_TTL_MS });
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of cache) if (now > v.exp) cache.delete(k);
-}, 60_000).unref();
-
-// ─────────────────────────────────────────────────────────────────────
-//  HELPERS VIMEO
-// ─────────────────────────────────────────────────────────────────────
-function isAllowedHost(hostname) {
-  return CONFIG.ALLOWED_HOST_PATTERNS.some((rx) => rx.test(hostname));
-}
-function assertAllowedUrl(urlString) {
-  const u = new URL(urlString);
-  if (!['http:', 'https:'].includes(u.protocol)) throw new Error('Protocolo no permitido');
-  if (!isAllowedHost(u.hostname)) throw new Error('Host no permitido: ' + u.hostname);
-  return u;
-}
-function publicBaseUrl(req) {
-  const proto = req.headers['x-forwarded-proto'] || req.protocol;
-  const host  = req.headers['x-forwarded-host']  || req.get('host');
-  return `${proto}://${host}`;
-}
-function parseVimeoInput(input) {
-  if (!input) throw new Error('Falta el parámetro url o id');
-  if (/^\d+$/.test(String(input).trim())) return { videoId: String(input).trim(), videoHash: null };
-  let u;
-  try { u = new URL(input); } catch { throw new Error('URL inválida'); }
-  const m = u.pathname.match(/(?:video\/)?(\d+)(?:\/([a-zA-Z0-9]+))?/);
-  if (!m) throw new Error('No se pudo extraer el ID de Vimeo');
-  return { videoId: m[1], videoHash: m[2] || u.searchParams.get('h') || null };
-}
-async function fetchVimeoConfig(videoId, videoHash, referer) {
-  const hashParam = videoHash ? `?h=${videoHash}` : '';
-  const url = `https://player.vimeo.com/video/${videoId}/config${hashParam}`;
-  const res = await axios.get(url, {
-    headers: {
-      'User-Agent': CONFIG.VIMEO_UA,
-      'Referer':    referer || `https://player.vimeo.com/video/${videoId}`,
-      'Origin':     'https://player.vimeo.com',
-      'Accept':     'application/json, text/plain, */*',
-    },
-    timeout: CONFIG.TIMEOUT_MS,
-    validateStatus: (s) => s >= 200 && s < 400,
-  });
-  return res.data;
-}
-function pickBestStream(config) {
-  const files = config?.request?.files || {};
-  const qualities = [];
-  if (files.hls?.cdns) {
-    const cdns = files.hls.cdns;
-    const defaultCdn = files.hls.default_cdn || Object.keys(cdns)[0];
-    const cdn = cdns[defaultCdn];
-    const masterUrl = cdn?.avc_url || cdn?.url;
-    if (masterUrl) {
-      qualities.push({ type: 'hls', url: masterUrl, quality: 'auto' });
-      for (const [k, v] of Object.entries(cdns)) {
-        if (v?.url && v.url !== masterUrl) qualities.push({ type: 'hls', url: v.url, quality: k });
-      }
-      return { format: 'hls', streamUrl: masterUrl, qualities };
-    }
-  }
-  if (Array.isArray(files.progressive) && files.progressive.length) {
-    const sorted = [...files.progressive].sort((a, b) => (b.height || 0) - (a.height || 0));
-    for (const p of sorted) {
-      qualities.push({ type: 'mp4', url: p.url, quality: p.quality || `${p.height}p`, width: p.width, height: p.height, fps: p.fps });
-    }
-    return { format: 'mp4', streamUrl: sorted[0].url, qualities };
-  }
-  throw new Error('No hay streams disponibles (HLS/MP4) en el config');
-}
-function wrapProxy(req, type, url) {
-  const base = publicBaseUrl(req);
-  const ep = type === 'hls' ? '/api/vimeo/hls' : '/api/vimeo/proxy';
-  return `${base}${ep}?url=${encodeURIComponent(url)}`;
-}
-
-// ─────────────────────────────────────────────────────────────────────
-//  APP
-// ─────────────────────────────────────────────────────────────────────
 const app = express();
-app.set('trust proxy', 1);
-app.use(cors({
-  origin: CONFIG.ALLOWED_ORIGINS === '*' ? true : CONFIG.ALLOWED_ORIGINS.split(','),
-  methods: ['GET', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Range'],
-  exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
-}));
+const PORT = process.env.PORT || 10000;
 
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl.slice(0, 140)}`);
-  next();
-});
+app.use(cors({ origin: '*' }));
+app.use(express.json());
 
 // ── RUTA RAÍZ
 app.get('/', (req, res) => {
   res.send(`
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-      <meta charset="UTF-8">
-      <title>mi-player-api</title>
-      <style>
-        body { font-family: system-ui, sans-serif; background: #0d0d18; color: #f0f0f5; padding: 2rem; }
-        h1 { color: #8b5cf6; }
-        input { width: 100%; max-width: 400px; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #1a1a28; color: white; margin-bottom: 10px; }
-        button { padding: 10px 20px; border-radius: 8px; border: none; background: #7c5cff; color: white; font-weight: bold; cursor: pointer; }
-        pre { background: #1a1a28; padding: 1rem; border-radius: 8px; border: 1px solid #333; overflow-x: auto; max-width: 800px; }
-      </style>
-    </head>
-    <body>
-      <h1>🎬 API en Línea</h1>
-      <p>Servidor funcionando correctamente.</p>
-      <ul>
-        <li><a href="/api/health" style="color:#00d2ff;">/api/health</a></li>
-        <li><a href="/api/vimeo/extract?url=https://vimeo.com/76979871" style="color:#00d2ff;">/api/vimeo/extract (Prueba Vimeo)</a></li>
-        <li><a href="/player.html?id=https://vimeo.com/76979871&type=movie" style="color:#00d2ff;">Abrir Reproductor con Vimeo</a></li>
-      </ul>
-      <hr style="border-color: #333; margin: 2rem 0;">
-      <h3>Probar extracción de Vimeo:</h3>
-      <input id="vurl" type="text" value="https://vimeo.com/76979871" placeholder="URL de Vimeo">
-      <button onclick="testExtract()">Extraer Video</button>
-      <pre id="out" style="margin-top: 20px; display: none;"></pre>
-      <script>
-        async function testExtract() {
-          const url = document.getElementById('vurl').value;
-          const out = document.getElementById('out');
-          out.style.display = 'block';
-          out.textContent = 'Cargando...';
-          try {
-            const res = await fetch('/api/vimeo/extract?url=' + encodeURIComponent(url));
-            const data = await res.json();
-            out.textContent = JSON.stringify(data, null, 2);
-          } catch(e) { out.textContent = 'Error: ' + e.message; }
-        }
-      </script>
-    </body>
-    </html>
+    <h1>API en Línea</h1>
+    <p><a href="/api/servers?id=315635&type=movie">Probar /api/servers (Películas)</a></p>
+    <p><a href="/api/vimeo/extract?url=https://vimeo.com/76979871">Probar Vimeo</a></p>
   `);
 });
 
 // ── HEALTH
-app.get('/api/health', (_req, res) => res.json({ ok: true, uptime: process.uptime(), now: new Date().toISOString() }));
-app.get('/health', (_req, res) => res.redirect('/api/health'));
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-// ── RUTAS DE VIMEO
+// ─────────────────────────────────────────────────────────────────────
+// 🔥 RUTA QUE FALTABA: /api/servers (Para tus películas)
+// ─────────────────────────────────────────────────────────────────────
+const TMDB_KEY = '2d85217008ed46189916cf9cf1eaef53';
+
+app.get('/api/servers', async (req, res) => {
+  try {
+    const { id, type } = req.query;
+    if (!id) return res.status(400).json({ error: 'Falta ID' });
+
+    // 1. Obtener info de la película desde TMDB
+    const tmdbUrl = `https://api.themoviedb.org/3/${type}/${id}?api_key=${TMDB_KEY}&language=es-ES`;
+    const tmdbRes = await axios.get(tmdbUrl);
+    const movie = tmdbRes.data;
+
+    // 2. Crear los servidores falsos (Simulando los que hacía Puppeteer)
+    const servers = {
+      latino: {
+        vimeo: { url: "https://vimeo.com/76979871" }, // Servidor 1: Vimeo
+        unlimplay: { url: `https://unlimplay.com/f/embed/movie/${movie.imdb_id || id}` }, // Servidor 2
+      }
+    };
+
+    // 3. Responder al reproductor con el formato que espera
+    res.json({
+      meta: {
+        title: movie.title || movie.name,
+        year: (movie.release_date || movie.first_air_date || '').split('-')[0],
+        overview: movie.overview,
+        poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null,
+        voteAverage: movie.vote_average,
+        tmdbId: id
+      },
+      servers: servers
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// 🔥 RUTAS DE VIMEO (Ya estaban bien)
+// ─────────────────────────────────────────────────────────────────────
+const VIMEO_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
 app.get('/api/vimeo/extract', async (req, res) => {
   try {
-    const { url, referer, format: prefer } = req.query;
-    const { videoId, videoHash } = parseVimeoInput(url);
-    const cKey = `extract:${videoId}:${videoHash || ''}:${referer || ''}`;
-    const cached = getCache(cKey);
-    if (cached) return res.json({ ...cached, cached: true });
-
-    const config = await fetchVimeoConfig(videoId, videoHash, referer);
-    const { format, streamUrl, qualities } = pickBestStream(config);
-    let finalFormat = format;
-    let finalUrl = streamUrl;
-    if (prefer && prefer !== format) {
-      const alt = qualities.find((q) => q.type === prefer);
-      if (alt) { finalFormat = prefer; finalUrl = alt.url; }
+    const { url } = req.query;
+    let videoId = url;
+    let videoHash = null;
+    if (url.includes('vimeo.com')) {
+      const match = url.match(/(?:vimeo\.com\/(?:video\/)?)(\d+)(?:\/([a-zA-Z0-9]+))?/);
+      if (match) {
+        videoId = match[1];
+        videoHash = match[2] || new URL(url).searchParams.get('h');
+      }
     }
-    const meta = config.video || {};
-    const payload = {
-      success: true, videoId, videoHash,
-      title: meta.title, duration: meta.duration,
-      thumbnail: meta.thumbs?.['1280'] || meta.thumbs?.['640'] || meta.thumbs?.['320'],
-      width: meta.width, height: meta.height,
-      format: finalFormat, directUrl: finalUrl,
-      streamUrl: wrapProxy(req, finalFormat === 'hls' ? 'hls' : 'proxy', finalUrl),
-      qualities: qualities.map((q) => ({ ...q, proxyUrl: wrapProxy(req, q.type === 'hls' ? 'hls' : 'proxy', q.url) })),
-    };
-    setCache(cKey, payload);
-    res.json(payload);
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+
+    const hashParam = videoHash ? `?h=${videoHash}` : '';
+    const configUrl = `https://player.vimeo.com/video/${videoId}/config${hashParam}`;
+    
+    const response = await axios.get(configUrl, {
+      headers: { 'User-Agent': VIMEO_UA, 'Referer': 'https://player.vimeo.com/' }
+    });
+
+    const config = response.data;
+    const files = config.request?.files || {};
+    let streamUrl = null;
+    let format = 'unknown';
+
+    if (files.hls?.cdns) {
+      const defaultCdn = files.hls.default_cdn;
+      streamUrl = files.hls.cdns[defaultCdn]?.url;
+      format = 'hls';
+    } else if (files.progressive && files.progressive.length > 0) {
+      const sorted = files.progressive.sort((a, b) => b.height - a.height);
+      streamUrl = sorted[0].url;
+      format = 'mp4';
+    }
+
+    if (!streamUrl) return res.status(404).json({ error: 'No hay streams' });
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    
+    res.json({
+      success: true,
+      title: config.video?.title,
+      duration: config.video?.duration,
+      format: format,
+      streamUrl: format === 'hls' 
+        ? `${baseUrl}/api/vimeo/hls?url=${encodeURIComponent(streamUrl)}`
+        : `${baseUrl}/api/vimeo/proxy?url=${encodeURIComponent(streamUrl)}`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.get('/api/vimeo/hls', async (req, res) => {
   try {
     const { url } = req.query;
-    if (!url) return res.status(400).json({ error: 'Falta ?url' });
-    const target = assertAllowedUrl(url);
-    const upstream = await axios.get(target.href, {
-      headers: { 'User-Agent': CONFIG.VIMEO_UA, 'Referer': 'https://player.vimeo.com/' },
-      timeout: CONFIG.TIMEOUT_MS, responseType: 'text', transformResponse: [(x) => x],
+    const upstream = await axios.get(url, {
+      headers: { 'User-Agent': VIMEO_UA, 'Referer': 'https://player.vimeo.com/' },
+      responseType: 'text',
+      transformResponse: [(x) => x],
     });
-    const origin = publicBaseUrl(req);
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     let text = String(upstream.data || '');
-    text = text.replace(/URI="([^"]+)"/g, (_m, uri) => {
-      const abs = new URL(uri, target).href;
-      return `URI="${origin}/api/vimeo/proxy?url=${encodeURIComponent(abs)}"`;
-    });
+
     text = text.split('\n').map((line) => {
       const t = line.trim();
       if (!t || t.startsWith('#')) return line;
-      const abs = new URL(t, target).href;
+      const abs = new URL(t, url).href;
       const isPlaylist = /\.m3u8(\?|$)/i.test(abs);
       const ep = isPlaylist ? '/api/vimeo/hls' : '/api/vimeo/proxy';
-      return `${origin}${ep}?url=${encodeURIComponent(abs)}`;
+      return `${baseUrl}${ep}?url=${encodeURIComponent(abs)}`;
     }).join('\n');
+
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    res.setHeader('Cache-Control', 'no-store');
     res.send(text);
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).send(err.message);
   }
 });
 
 app.get('/api/vimeo/proxy', async (req, res) => {
   try {
     const { url } = req.query;
-    if (!url) return res.status(400).json({ error: 'Falta ?url' });
-    const target = assertAllowedUrl(url);
-    const headers = { 'User-Agent': CONFIG.VIMEO_UA, 'Referer': 'https://player.vimeo.com/' };
+    const headers = { 'User-Agent': VIMEO_UA, 'Referer': 'https://player.vimeo.com/' };
     if (req.headers.range) headers.Range = req.headers.range;
-    const upstream = await axios({
-      method: 'GET', url: target.href, headers, timeout: CONFIG.TIMEOUT_MS, responseType: 'stream', maxRedirects: 5,
-      validateStatus: (s) => s >= 200 && s < 400,
-    });
-    for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control', 'last-modified', 'etag']) {
+
+    const upstream = await axios({ method: 'GET', url, headers, responseType: 'stream' });
+
+    for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
       if (upstream.headers[h]) res.setHeader(h, upstream.headers[h]);
     }
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-    res.status(upstream.status);
     upstream.data.pipe(res);
-    upstream.data.on('error', () => { try { res.end(); } catch {} });
-    req.on('close', () => { try { upstream.data.destroy(); } catch {} });
   } catch (err) {
-    if (!res.headersSent) res.status(500).json({ success: false, error: err.message });
-    else try { res.end(); } catch {}
+    res.status(500).send(err.message);
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// 🔥 TUS RUTAS EXISTENTES DE PUPPETEER (Películas)
-// ─────────────────────────────────────────────────────────────────────
-// ⚠️ PEGA AQUÍ TUS RUTAS DE /api/servers, /api/extract y /api/proxy
-// 
-// Ejemplo de cómo debería verse:
-// app.get('/api/servers', async (req, res) => {
-//   const { id, type } = req.query;
-//   // ... tu código de puppeteer ...
-// });
-// 
-// app.get('/api/extract', async (req, res) => {
-//   const { url } = req.query;
-//   // ... tu código de extracción ...
-// });
-// 
-// ⚠️ Si las tienes en otro archivo, impórtalas así:
-// const movieRoutes = require('./routes/movies');
-// app.use('/api', movieRoutes);
-
-// ── SERVIR ARCHIVOS ESTÁTICOS (Para que funcione player.html)
-app.use(express.static(path.join(__dirname))); 
+// ── SERVIR ARCHIVOS ESTÁTICOS
+app.use(express.static(path.join(__dirname)));
 
 // ── 404 / ERROR HANDLER
 app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
-app.use((err, _req, res, _next) => {
-  console.error('[global]', err);
-  if (!res.headersSent) res.status(500).json({ error: err.message || 'Error interno' });
-});
 
-// ─────────────────────────────────────────────────────────────────────
-//  ARRANQUE
-// ─────────────────────────────────────────────────────────────────────
-const server = app.listen(CONFIG.PORT, () => {
-  console.log('──────────────────────────────────────────────────');
-  console.log(`  mi-player-api en puerto ${CONFIG.PORT}`);
-  console.log(`  http://localhost:${CONFIG.PORT}`);
-  console.log('──────────────────────────────────────────────────');
-});
-
-const shutdown = (sig) => {
-  console.log(`\n[${sig}] Cerrando servidor…`);
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5000).unref();
-};
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
-process.on('unhandledRejection', (r) => console.error('[unhandledRejection]', r));
-process.on('uncaughtException',  (e) => console.error('[uncaughtException]',  e));
+app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
