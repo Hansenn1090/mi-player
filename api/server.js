@@ -1,359 +1,359 @@
-// api/server.js
+/**
+ * =====================================================================
+ *  VIMEO EXTRACTOR API — server.js
+ * ---------------------------------------------------------------------
+ *  Extrae streams directos (HLS / MP4) de Vimeo y los sirve mediante
+ *  proxy CORS-safe para que un reproductor externo (Video.js, Plyr,
+ *  <video> nativo) tome el control de la reproducción.
+ *
+ *  Endpoints:
+ *    GET /health
+ *    GET /api/vimeo/extract?url=<vimeo-url|id>[&referer=<url>][&format=hls|mp4]
+ *    GET /api/vimeo/hls?url=<m3u8>       (uso interno / reproductor HLS)
+ *    GET /api/vimeo/proxy?url=<segment>  (uso interno / reproductor HLS/MP4)
+ * =====================================================================
+ */
+
+'use strict';
+
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent'); // 🔥 Importamos el agente
+const axios   = require('axios');
+const cors    = require('cors');
+const { URL } = require('url');
+
+// ─────────────────────────────────────────────────────────────────────
+//  CONFIGURACIÓN
+// ─────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  PORT: process.env.PORT || 3000,
+  VIMEO_UA: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  TIMEOUT_MS: 15000,
+  CACHE_TTL_MS: 8 * 60 * 1000,     // 8 min (las URLs de Vimeo caducan en ~15)
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || '*',
+  // Allowlist de hosts para evitar SSRF / open proxy
+  ALLOWED_HOST_PATTERNS: [
+    /^player\.vimeo\.com$/i,
+    /^vimeo\.com$/i,
+    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vimeo\.com$/i,
+    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vimeocdn\.com$/i,
+    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vod-progressive\.akamaized\.net$/i,
+    /^vod-progressive\.akamaized\.net$/i,
+  ],
+};
+
+// ─────────────────────────────────────────────────────────────────────
+//  CACHÉ EN MEMORIA
+// ─────────────────────────────────────────────────────────────────────
+const cache = new Map();
+const getCache = (k) => {
+  const hit = cache.get(k);
+  if (!hit) return null;
+  if (Date.now() > hit.exp) { cache.delete(k); return null; }
+  return hit.val;
+};
+const setCache = (k, v) =>
+  cache.set(k, { val: v, exp: Date.now() + CONFIG.CACHE_TTL_MS });
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of cache) if (now > v.exp) cache.delete(k);
+}, 60_000).unref();
+
+// ─────────────────────────────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────────────────────────────
+function isAllowedHost(hostname) {
+  return CONFIG.ALLOWED_HOST_PATTERNS.some((rx) => rx.test(hostname));
+}
+
+function assertAllowedUrl(urlString) {
+  const u = new URL(urlString);
+  if (!['http:', 'https:'].includes(u.protocol)) throw new Error('Protocolo no permitido');
+  if (!isAllowedHost(u.hostname)) throw new Error('Host no permitido: ' + u.hostname);
+  return u;
+}
+
+function publicBaseUrl(req) {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host  = req.headers['x-forwarded-host']  || req.get('host');
+  return `${proto}://${host}`;
+}
+
+/**
+ * Acepta: URL de Vimeo, URL de player, o solo el ID numérico.
+ * Devuelve { videoId, videoHash } — el hash es necesario para videos
+ * no listados (unlisted/private).
+ */
+function parseVimeoInput(input) {
+  if (!input) throw new Error('Falta el parámetro url o id');
+  if (/^\d+$/.test(String(input).trim())) {
+    return { videoId: String(input).trim(), videoHash: null };
+  }
+  let u;
+  try { u = new URL(input); }
+  catch { throw new Error('URL inválida'); }
+
+  const m = u.pathname.match(/(?:video\/)?(\d+)(?:\/([a-zA-Z0-9]+))?/);
+  if (!m) throw new Error('No se pudo extraer el ID de Vimeo');
+  return {
+    videoId: m[1],
+    videoHash: m[2] || u.searchParams.get('h') || null,
+  };
+}
+
+/** Llama al endpoint /config no oficial de Vimeo. */
+async function fetchVimeoConfig(videoId, videoHash, referer) {
+  const hashParam = videoHash ? `?h=${videoHash}` : '';
+  const url = `https://player.vimeo.com/video/${videoId}/config${hashParam}`;
+
+  const res = await axios.get(url, {
+    headers: {
+      'User-Agent': CONFIG.VIMEO_UA,
+      'Referer':    referer || `https://player.vimeo.com/video/${videoId}`,
+      'Origin':     'https://player.vimeo.com',
+      'Accept':     'application/json, text/plain, */*',
+    },
+    timeout: CONFIG.TIMEOUT_MS,
+    validateStatus: (s) => s >= 200 && s < 400,
+  });
+  return res.data;
+}
+
+/** Devuelve { format, streamUrl, qualities } desde el config de Vimeo. */
+function pickBestStream(config) {
+  const files = config?.request?.files || {};
+  const qualities = [];
+
+  // 1) HLS — preferido por ser adaptativo
+  if (files.hls?.cdns) {
+    const cdns = files.hls.cdns;
+    const defaultCdn = files.hls.default_cdn || Object.keys(cdns)[0];
+    const cdn = cdns[defaultCdn];
+    // avc_url es la variante AVC (máxima compatibilidad)
+    const masterUrl = cdn?.avc_url || cdn?.url;
+    if (masterUrl) {
+      qualities.push({ type: 'hls', url: masterUrl, quality: 'auto' });
+      // Si hay variantes explícitas, exponerlas
+      for (const [k, v] of Object.entries(cdns)) {
+        if (v?.url && v.url !== masterUrl) {
+          qualities.push({ type: 'hls', url: v.url, quality: k });
+        }
+      }
+      return { format: 'hls', streamUrl: masterUrl, qualities };
+    }
+  }
+
+  // 2) Progressive MP4
+  if (Array.isArray(files.progressive) && files.progressive.length) {
+    const sorted = [...files.progressive].sort((a, b) => (b.height || 0) - (a.height || 0));
+    for (const p of sorted) {
+      qualities.push({
+        type: 'mp4',
+        url: p.url,
+        quality: p.quality || `${p.height}p`,
+        width: p.width, height: p.height, fps: p.fps,
+      });
+    }
+    return { format: 'mp4', streamUrl: sorted[0].url, qualities };
+  }
+
+  throw new Error('No hay streams disponibles (HLS/MP4) en el config');
+}
+
+/** Envuelve una URL de Vimeo a través de nuestro proxy. */
+function wrapProxy(req, type, url) {
+  const base = publicBaseUrl(req);
+  const ep = type === 'hls' ? '/api/vimeo/hls' : '/api/vimeo/proxy';
+  return `${base}${ep}?url=${encodeURIComponent(url)}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  APP
+// ─────────────────────────────────────────────────────────────────────
 const app = express();
-
-app.use(express.json());
-
-// ═════════════════════════════════════════════════════════════════
-// ⚙️ NUEVA LISTA DE PROXIES (La que me enviaste)
-// ═════════════════════════════════════════════════════════════════
-const PROXY_LIST = [
-    'http://47.91.89.3:80',
-    'http://8.211.194.85:8443',
-    'http://47.91.120.198:80',
-    'http://138.117.85.217:999',
-    'http://8.211.49.86:2000',
-    'http://47.238.128.246:202',
-    'http://47.237.92.86:104',
-    'http://47.91.109.179:80',
-    'http://8.213.134.213:50',
-    'http://8.211.49.86:8008',
-    'http://8.213.134.213:41',
-    'http://47.251.87.74:85',
-    'http://149.129.226.9:920',
-    'http://8.137.38.48:8081',
-    'http://47.108.159.113:8008',
-    'http://8.148.24.225:8081',
-    'http://8.219.229.53:80',
-    'http://8.209.96.245:8080',
-    'http://47.119.20.8:8081',
-    'http://47.251.73.54:8081',
-    'http://8.209.96.245:8443',
-    'http://47.238.60.156:3128',
-    'http://47.251.74.38:5060',
-    'http://39.102.213.187:5060',
-    'http://8.221.138.111:8081',
-    'http://186.208.81.214:3129',
-    'http://47.92.152.43:8081',
-    'http://47.92.152.43:9098',
-    'http://8.215.15.163:8080',
-    'http://47.250.159.65:41',
-    'http://47.76.144.139:4145',
-    'http://47.92.152.43:8089',
-    'http://45.230.170.13:999',
-    'http://47.252.18.37:5060',
-    'http://8.209.96.245:1234',
-    'http://8.209.96.245:3128'
-];
-
-// Función para mezclar los proxies (evita usar siempre el mismo)
-function getRandomProxies() {
-    return [...PROXY_LIST].sort(() => Math.random() - 0.5);
-}
-
-// ═════════════════════════════════════════════════════════════════
-// STATIC — sirve player.html desde donde esté
-// ═════════════════════════════════════════════════════════════════
-const staticDirs = [
-    __dirname,
-    path.join(__dirname, 'public'),
-    path.join(__dirname, '..'),
-];
-let servedFrom = null;
-for (const dir of staticDirs) {
-    try {
-        if (fs.existsSync(path.join(dir, 'player.html'))) {
-            app.use(express.static(dir));
-            servedFrom = dir;
-            console.log(`[server] ✅ Estáticos desde: ${dir}`);
-            break;
-        }
-    } catch (_) {}
-}
-if (!servedFrom) {
-    console.warn('[server] ⚠️ No encontré player.html en:', staticDirs);
-}
-
-// ═════════════════════════════════════════════════════════════════
-// IMPORTS SEGUROS
-// ═════════════════════════════════════════════════════════════════
-let getSourcesFromProviders = async () => ({});
-try {
-    ({ getSourcesFromProviders } = require('./providers/registry'));
-    console.log('[server] ✅ registry cargado');
-} catch (err) {
-    console.error('[server] ❌ registry NO cargado:', err.message);
-}
-
-let tmdb = null;
-try {
-    tmdb = require('./core/tmdb');
-    console.log('[server] ✅ tmdb cargado');
-} catch (err) {
-    console.warn('[server] ⚠️ core/tmdb NO cargado:', err.message);
-}
-
-let extractor = null;
-try {
-    extractor = require('./core/extractor');
-    console.log('[server] ✅ extractor cargado');
-} catch (err) {
-    console.warn('[server] ⚠️ core/extractor NO cargado:', err.message);
-}
-
-// ═════════════════════════════════════════════════════════════════
-// HEALTH CHECKS
-// ═════════════════════════════════════════════════════════════════
-app.get('/api/health', (_req, res) => {
-    res.status(200).json({ ok: true, uptime: process.uptime(), ts: Date.now() });
+app.set('trust proxy', 1);
+app.use(cors({
+  origin: CONFIG.ALLOWED_ORIGINS === '*' ? true : CONFIG.ALLOWED_ORIGINS.split(','),
+  methods: ['GET', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Range'],
+  exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
+}));
+app.use((req, _res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl.slice(0, 140)}`);
+  next();
 });
 
-app.get('/', (_req, res) => res.send('OK'));
+// ── HEALTH
+app.get('/health', (_req, res) =>
+  res.json({ ok: true, uptime: process.uptime(), now: new Date().toISOString() })
+);
 
-// ═════════════════════════════════════════════════════════════════
-// GET /api/servers  →  la ruta que usa player.html
-// ═════════════════════════════════════════════════════════════════
-app.get('/api/servers', async (req, res) => {
-    const { id, type } = req.query;
+// ── EXTRACT
+// GET /api/vimeo/extract?url=<vimeo-url|id>[&referer=...][&format=hls|mp4]
+app.get('/api/vimeo/extract', async (req, res) => {
+  try {
+    const { url, referer, format: prefer } = req.query;
+    const { videoId, videoHash } = parseVimeoInput(url);
 
-    if (!id || !type) {
-        return res.status(400).json({ ok: false, error: 'Faltan parámetros id/type' });
+    const cKey = `extract:${videoId}:${videoHash || ''}:${referer || ''}`;
+    const cached = getCache(cKey);
+    if (cached) return res.json({ ...cached, cached: true });
+
+    const config = await fetchVimeoConfig(videoId, videoHash, referer);
+    const { format, streamUrl, qualities } = pickBestStream(config);
+
+    // Reordenar si el cliente pidió un formato específico
+    let finalFormat = format;
+    let finalUrl = streamUrl;
+    if (prefer && prefer !== format) {
+      const alt = qualities.find((q) => q.type === prefer);
+      if (alt) { finalFormat = prefer; finalUrl = alt.url; }
     }
 
-    try {
-        let meta = null;
-        if (tmdb && typeof tmdb.getMediaInfo === 'function') {
-            try {
-                meta = await tmdb.getMediaInfo(id, type);
-            } catch (e) {
-                console.warn('[server] TMDB falló:', e.message);
-            }
-        }
+    const meta = config.video || {};
+    const payload = {
+      success: true,
+      videoId,
+      videoHash,
+      title: meta.title,
+      duration: meta.duration,
+      thumbnail: meta.thumbs?.['1280'] || meta.thumbs?.['640'] || meta.thumbs?.['320'],
+      width: meta.width,
+      height: meta.height,
+      format: finalFormat,
+      // URL directa (caduca en ~15 min y NO es CORS-safe)
+      directUrl: finalUrl,
+      // URL proxificada — usa esta en el cliente
+      streamUrl: wrapProxy(req, finalFormat === 'hls' ? 'hls' : 'proxy', finalUrl),
+      qualities: qualities.map((q) => ({
+        ...q,
+        proxyUrl: wrapProxy(req, q.type === 'hls' ? 'hls' : 'proxy', q.url),
+      })),
+    };
 
-        const servers = await getSourcesFromProviders(type, id);
+    setCache(cKey, payload);
+    res.json(payload);
+  } catch (err) {
+    console.error('[extract]', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
-        res.json({ ok: true, id, type, meta, servers });
-    } catch (err) {
-        console.error('[server] /api/servers:', err);
-        res.status(500).json({ ok: false, error: err.message });
+// ── HLS PLAYLIST REWRITER
+// Descarga el .m3u8 y reescribe todas las URLs para que vuelvan a pasar
+// por este servidor (sub-playlists → /hls, segmentos/keys → /proxy).
+app.get('/api/vimeo/hls', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: 'Falta ?url' });
+    const target = assertAllowedUrl(url);
+
+    const upstream = await axios.get(target.href, {
+      headers: { 'User-Agent': CONFIG.VIMEO_UA, 'Referer': 'https://player.vimeo.com/' },
+      timeout: CONFIG.TIMEOUT_MS,
+      responseType: 'text',
+      transformResponse: [(x) => x],
+    });
+
+    const origin = publicBaseUrl(req);
+    let text = String(upstream.data || '');
+
+    // 1) Reescribe atributos URI="..." en #EXT-X-MAP / #EXT-X-KEY / #EXT-X-MEDIA
+    text = text.replace(/URI="([^"]+)"/g, (_m, uri) => {
+      const abs = new URL(uri, target).href;
+      return `URI="${origin}/api/vimeo/proxy?url=${encodeURIComponent(abs)}"`;
+    });
+
+    // 2) Reescribe URLs "sueltas" (una por línea)
+    text = text.split('\n').map((line) => {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) return line;
+      const abs = new URL(t, target).href;
+      const isPlaylist = /\.m3u8(\?|$)/i.test(abs);
+      const ep = isPlaylist ? '/api/vimeo/hls' : '/api/vimeo/proxy';
+      return `${origin}${ep}?url=${encodeURIComponent(abs)}`;
+    }).join('\n');
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(text);
+  } catch (err) {
+    console.error('[hls]', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── BINARY PROXY (segmentos HLS, keys, init maps, MP4)
+// Soporta Range → permite seeking en MP4.
+app.get('/api/vimeo/proxy', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: 'Falta ?url' });
+    const target = assertAllowedUrl(url);
+
+    const headers = {
+      'User-Agent': CONFIG.VIMEO_UA,
+      'Referer': 'https://player.vimeo.com/',
+    };
+    if (req.headers.range) headers.Range = req.headers.range;
+
+    const upstream = await axios({
+      method: 'GET',
+      url: target.href,
+      headers,
+      timeout: CONFIG.TIMEOUT_MS,
+      responseType: 'stream',
+      maxRedirects: 5,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+
+    // Propaga cabeceras relevantes (incluye Range)
+    for (const h of [
+      'content-type', 'content-length', 'content-range',
+      'accept-ranges', 'cache-control', 'last-modified', 'etag',
+    ]) {
+      if (upstream.headers[h]) res.setHeader(h, upstream.headers[h]);
     }
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers',
+      'Content-Length, Content-Range, Accept-Ranges');
+
+    res.status(upstream.status);
+    upstream.data.pipe(res);
+
+    upstream.data.on('error', () => { try { res.end(); } catch {} });
+    req.on('close', () => { try { upstream.data.destroy(); } catch {} });
+  } catch (err) {
+    console.error('[proxy]', err.message);
+    if (!res.headersSent) res.status(500).json({ success: false, error: err.message });
+    else try { res.end(); } catch {}
+  }
 });
 
-// ═════════════════════════════════════════════════════════════════
-// GET /api/extract?url=...  →  extrae .m3u8 / .mp4 de un embed
-// ═════════════════════════════════════════════════════════════════
-app.get('/api/extract', async (req, res) => {
-    const { url, referer } = req.query;
-
-    if (!url) {
-        return res.status(400).json({ error: 'Falta parámetro url' });
-    }
-
-    try {
-        if (!extractor) {
-            return res.json({ error: 'Extractor no disponible' });
-        }
-
-        const fn = extractor.extractStream
-                || extractor.extract
-                || extractor.extractFromUrl
-                || extractor.getStream
-                || extractor.default;
-
-        if (typeof fn !== 'function') {
-            return res.json({ error: 'Extractor sin función extract' });
-        }
-
-        const result = await fn(url, { referer: referer || url });
-
-        if (!result || !result.stream) {
-            return res.json({ error: 'No se pudo extraer el stream' });
-        }
-
-        // 🔥 DEVOLVEMOS COOKIE Y EL CONTENIDO M3U8 AL REPRODUCTOR
-        res.json({
-            stream:  result.stream,
-            kind:    result.kind    || 'hls',
-            referer: result.referer || referer || url,
-            cookie:  result.cookie  || '',
-            m3u8Content: result.m3u8Content || null // Pasamos el texto pre-descargado
-        });
-    } catch (err) {
-        console.error('[server] /api/extract:', err);
-        res.status(500).json({ error: err.message });
-    }
+// ── 404 / ERROR HANDLER
+app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
+app.use((err, _req, res, _next) => {
+  console.error('[global]', err);
+  if (!res.headersSent) res.status(500).json({ error: err.message || 'Error interno' });
 });
 
-// ═════════════════════════════════════════════════════════════════
-// GET /api/proxy  →  RUTA CRÍTICA CON ROTACIÓN DE PROXIES
-// ═════════════════════════════════════════════════════════════════
-app.get('/api/proxy', async (req, res) => {
-    const { url: urlDestino, referer: refererDestino, cookie, m3u8Content } = req.query;
-    
-    if (!urlDestino) return res.status(400).send('Falta el parámetro URL');
-
-    try {
-        const isM3U8 = urlDestino.includes('.m3u8') || urlDestino.includes('.txt');
-        let contenidoM3U8 = '';
-
-        // 🔥 SI ES M3U8 Y YA TENEMOS EL TEXTO, NOS SALTAMOS AXIOS (Evita el 403)
-        if (isM3U8 && m3u8Content) {
-            console.log('[Proxy] ✅ Usando M3U8 pre-descargado por Puppeteer');
-            contenidoM3U8 = decodeURIComponent(m3u8Content);
-        } else {
-            // 🔥 SI ES UN SEGMENTO .TS O KEY, USAMOS LA ROTACIÓN DE PROXIES
-            const headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                'Referer': refererDestino || 'https://vimeos.net/',
-                'Origin': 'https://vimeos.net',
-                'Accept': '*/*'
-            };
-
-            if (cookie) {
-                headers['Cookie'] = decodeURIComponent(cookie);
-            }
-
-            let response = null;
-            let lastError = null;
-            const proxiesToTry = getRandomProxies();
-
-            // Bucle para intentar con cada proxy hasta que uno funcione
-            for (const proxyUrl of proxiesToTry) {
-                try {
-                    console.log(`[Proxy] 🔄 Intentando con proxy: ${proxyUrl}`);
-                    const agent = new HttpsProxyAgent(proxyUrl);
-
-                    response = await axios({
-                        method: 'get',
-                        url: urlDestino,
-                        responseType: 'arraybuffer',
-                        maxRedirects: 0,
-                        validateStatus: (status) => status >= 200 && status < 400,
-                        headers: headers,
-                        httpsAgent: agent, // 🔥 Usamos el proxy
-                        httpAgent: agent,  // 🔥 Usamos el proxy
-                        timeout: 8000      // 8 segundos max por proxy para no colgar la app
-                    });
-                    
-                    // Si llegamos aquí, el proxy funcionó
-                    console.log(`[Proxy] ✅ Proxy exitoso: ${proxyUrl}`);
-                    break; 
-                } catch (err) {
-                    lastError = err;
-                    console.warn(`[Proxy] ⚠️ Falló proxy ${proxyUrl}:`, err.response ? err.response.status : err.message);
-                    // Continúa al siguiente proxy en el bucle
-                }
-            }
-
-            if (!response) {
-                throw new Error(`Todos los proxies fallaron. Último error: ${lastError?.message}`);
-            }
-
-            // Manejo manual de redirecciones manteniendo la cookie
-            if (response.status >= 300 && response.status < 400 && response.headers.location) {
-                const redirectUrl = response.headers.location;
-                let redirectProxy = `/api/proxy?url=${encodeURIComponent(redirectUrl)}&referer=${encodeURIComponent(refererDestino)}`;
-                if (cookie) {
-                    redirectProxy += `&cookie=${encodeURIComponent(cookie)}`;
-                }
-                return res.redirect(redirectProxy);
-            }
-
-            if (isM3U8) {
-                contenidoM3U8 = Buffer.from(response.data).toString('utf8');
-            } else {
-                // Devolver binarios (.ts o .key)
-                res.setHeader('Content-Type', response.headers['content-type'] || 'video/MP2T');
-                res.setHeader('Access-Control-Allow-Origin', '*');
-                return res.send(Buffer.from(response.data));
-            }
-        }
-
-        // ─── REESCRITURA DEL M3U8 ───
-        const urlObj = new URL(urlDestino);
-        const baseUrl = urlObj.href.substring(0, urlObj.href.lastIndexOf('/') + 1);
-        const miProxy = `${req.protocol}://${req.get('host')}/api/proxy`;
-
-        let urlSuffix = `&referer=${encodeURIComponent(refererDestino)}`;
-        if (cookie) {
-            urlSuffix += `&cookie=${encodeURIComponent(cookie)}`;
-        }
-
-        // Reescribir llaves
-        contenidoM3U8 = contenidoM3U8.replace(/URI="([^"]+)"/g, (match, p1) => {
-            try {
-                const urlAbsoluta = new URL(p1, baseUrl).href;
-                return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}"`;
-            } catch (e) { return match; }
-        });
-
-        // Reescribir segmentos
-        contenidoM3U8 = contenidoM3U8.split('\n').map(line => {
-            const cleanLine = line.trim(); 
-            if (cleanLine && !cleanLine.startsWith('#')) {
-                try {
-                    const urlAbsoluta = new URL(cleanLine, baseUrl).href;
-                    return `${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}`;
-                } catch (e) { return cleanLine; }
-            }
-            return cleanLine;
-        }).join('\n');
-
-        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        return res.send(contenidoM3U8);
-
-    } catch (error) {
-        console.error(`[Proxy Error] URL: ${urlDestino.substring(0, 50)}... | Status:`, error.response ? error.response.status : error.message);
-        res.status(500).send('Error interno del proxy');
-    }
+// ─────────────────────────────────────────────────────────────────────
+//  ARRANQUE / APAGADO LIMPIO
+// ─────────────────────────────────────────────────────────────────────
+const server = app.listen(CONFIG.PORT, () => {
+  console.log('──────────────────────────────────────────────────');
+  console.log(`  Vimeo Extractor API`);
+  console.log(`  http://localhost:${CONFIG.PORT}`);
+  console.log(`  Prueba: /api/vimeo/extract?url=https://vimeo.com/76979871`);
+  console.log('──────────────────────────────────────────────────');
 });
 
-// ═════════════════════════════════════════════════════════════════
-// POST /api/embed-links  →  alias estilo PlayLatinSRC
-// ═════════════════════════════════════════════════════════════════
-app.post('/api/embed-links', async (req, res) => {
-    const { type, id } = req.body || {};
-
-    if (!type || !id) {
-        return res.status(400).json({ ok: false, error: 'Faltan type/id' });
-    }
-
-    try {
-        const servers = await getSourcesFromProviders(type, id);
-        res.json({ ok: true, id, type, servers });
-    } catch (err) {
-        console.error('[server] /api/embed-links:', err);
-        res.status(500).json({ ok: false, error: err.message });
-    }
-});
-
-// ═════════════════════════════════════════════════════════════════
-// PROTECCIÓN ANTI-CRASH
-// ═════════════════════════════════════════════════════════════════
-process.on('unhandledRejection', (reason) => {
-    console.error('[server] ⚠️ UnhandledRejection:', reason?.message || reason);
-});
-
-process.on('uncaughtException', (err) => {
-    console.error('[server] ⚠️ UncaughtException:', err?.message || err);
-});
-
-process.on('SIGTERM', () => {
-    console.log('[server] SIGTERM recibido, cerrando...');
-    process.exit(0);
-});
-
-// ═════════════════════════════════════════════════════════════════
-// ARRANQUE
-// ═════════════════════════════════════════════════════════════════
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`[server] Servidor escuchando en puerto ${PORT}`);
-    console.log(`[server] TMDB_API_KEY ${process.env.TMDB_API_KEY ? 'presente ✅' : 'ausente ❌'}`);
-    console.log(`[server] PROXY LIST CARGADA: ${PROXY_LIST.length} proxies en rotación`);
-});
+const shutdown = (sig) => {
+  console.log(`\n[${sig}] Cerrando servidor…`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 5000).unref();
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('unhandledRejection', (r) => console.error('[unhandledRejection]', r));
+process.on('uncaughtException',  (e) => console.error('[uncaughtException]',  e));
