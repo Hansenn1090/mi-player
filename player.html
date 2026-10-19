@@ -304,7 +304,7 @@
 </main>
 
 <script>
-// 🔥 APUNTAMOS A LA MISMA URL DONDE ESTÁ ALojADO ESTE HTML
+// 🔥 DETECCIÓN AUTOMÁTICA DE LA API (Funciona tanto en local como en Render)
 const API_BASE = window.location.origin; 
 const VIMEO_API = API_BASE; 
 const PROXY_BASE = API_BASE + '/api/proxy';
@@ -568,7 +568,6 @@ async function extractFromBackend(embedUrl, referer) {
   }
 }
 
-// 🔥 VIMEO AHORA CONTROLA EL REPRODUCTOR NATIVO
 async function loadVimeoStream(videoUrlOrId) {
   try {
     showToast('Conectando con Vimeo...');
@@ -577,7 +576,6 @@ async function loadVimeoStream(videoUrlOrId) {
     if (!data.success) throw new Error(data.error || 'Error al extraer');
 
     if (data.format === 'hls') {
-      // 🔥 Aquí usamos el proxy propio de Vimeo, pasando la URL ya proxificada
       mountHls(data.streamUrl, null, null, null); 
     } else {
       mountMp4(data.streamUrl);
@@ -586,6 +584,7 @@ async function loadVimeoStream(videoUrlOrId) {
     if (data.title) {
       els.movieTitle.textContent = data.title;
       els.movieMeta.textContent = 'Vimeo Directo • ' + formatTime(data.duration || 0);
+      if (data.thumbnail) els.posterImg.src = data.thumbnail;
     }
     showToast('✅ Vimeo cargado correctamente');
   } catch (err) {
@@ -643,6 +642,7 @@ async function selectServer(num) {
 async function loadMovie(id, type) {
   state.movieId = id; state.movieType = type;
 
+  // 🔥 Detectar si es un enlace de Vimeo
   if (id.includes('vimeo.com') || /^\d{7,10}$/.test(id)) {
     state.currentAudio = 'vimeo';
     document.querySelectorAll('#group-audio-options button').forEach(b => b.classList.remove('tv-btn-active'));
@@ -835,8 +835,8 @@ setInterval(() => {
   const indicator = $('bitrate-indicator');
   if (indicator) indicator.textContent = pick;
 }, 4000);
+
 (async function init() {
-  // Pasa la URL de Vimeo aquí: tu-sitio.com/?id=https://vimeo.com/76979871
   const id = getQueryParam('id') || '315635';
   const type = getQueryParam('type') || 'movie';
   updateScrubberUI();
