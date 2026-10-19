@@ -307,14 +307,9 @@
 
 <script>
 const API_BASE = 'https://mi-player-api.onrender.com';
-
-// ✅ PROXY CONFIGURADO CORRECTAMENTE
 const PROXY_BASE = API_BASE + '/api/proxy';
 
-// ─── Hosts que se extraen con HLS (control total) → van PRIMERO ─
 const HLS_HOSTS = /vimeos|vimeo|streamwish|filelions|vidhide|vidmoly|voe|filemoon|doodstream|mixdrop|streamtape|okru|filelion|embedwish|hglink|flaswish|morencius|minochinos|callistanise|uqload|powvideo|streamplay|fastream|mp4upload|streamsb|streamhide|netu|vinovo|embedgram|vidspeed|nupload/i;
-
-// ─── Hosts que SIEMPRE son iframe → van al FINAL ────────────────
 const IFRAME_HOSTS = /playlatinsrc|unlimplay/i;
 
 const state = {
@@ -490,6 +485,10 @@ function attachVideoEvents(vid) {
   vid.addEventListener('play', () => { state.isPlaying = true; els.legendPlayLabel.textContent = 'Pausar'; });
   vid.addEventListener('pause', () => { state.isPlaying = false; els.legendPlayLabel.textContent = 'Reproducir'; });
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// ✅ FIX: HLS.js configurado para usar el Proxy y evitar bloqueos
+// ═══════════════════════════════════════════════════════════════════
 function mountHls(url, referer) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
@@ -500,18 +499,38 @@ function mountHls(url, referer) {
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideoEvents(vid);
   
-  // ✅ FIX: Se concatena correctamente la URL del proxy
   const finalUrl = PROXY_BASE
     ? (PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(referer || url))
     : url;
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    const hls = new Hls({ maxBufferLength: 30, startLevel: -1, enableWorker: true });
+    const hls = new Hls({ 
+        maxBufferLength: 30, 
+        startLevel: -1, 
+        enableWorker: false, // ❌ IMPORTANTE: Desactivado para que pase por el proxy sin problemas
+        xhrSetup: function(xhr, url) {
+            // Añadimos headers por si el proxy los necesita
+            xhr.setRequestHeader('Referer', referer || '');
+            xhr.setRequestHeader('Origin', 'https://mi-player-api.onrender.com');
+        }
+    });
+    
     _currentHls = hls;
     hls.loadSource(finalUrl);
     hls.attachMedia(vid);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => { vid.play().catch(() => {}); });
-    hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) showToast('Error HLS, prueba otro servidor'); });
+    
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { 
+        vid.play().catch(() => {
+            showToast("Haz clic en el video para reproducir");
+        }); 
+    });
+    
+    hls.on(Hls.Events.ERROR, (_, d) => { 
+        if (d.fatal) {
+            console.error('Error HLS fatal:', d);
+            showToast('Error HLS, prueba otro servidor');
+        }
+    });
   } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
     vid.src = finalUrl; vid.load();
     vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
