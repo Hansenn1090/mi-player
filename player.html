@@ -486,9 +486,6 @@ function attachVideoEvents(vid) {
   vid.addEventListener('pause', () => { state.isPlaying = false; els.legendPlayLabel.textContent = 'Reproducir'; });
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// ✅ FIX: HLS.js configurado para usar el Proxy y evitar bloqueos
-// ═══════════════════════════════════════════════════════════════════
 function mountHls(url, referer) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
@@ -507,14 +504,8 @@ function mountHls(url, referer) {
     const hls = new Hls({ 
         maxBufferLength: 30, 
         startLevel: -1, 
-        enableWorker: false, // ❌ IMPORTANTE: Desactivado para que pase por el proxy sin problemas
-        xhrSetup: function(xhr, url) {
-            // Añadimos headers por si el proxy los necesita
-            xhr.setRequestHeader('Referer', referer || '');
-            xhr.setRequestHeader('Origin', 'https://mi-player-api.onrender.com');
-        }
+        enableWorker: false // Desactivado para evitar que el proxy falle
     });
-    
     _currentHls = hls;
     hls.loadSource(finalUrl);
     hls.attachMedia(vid);
