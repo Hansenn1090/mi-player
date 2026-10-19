@@ -1,16 +1,10 @@
 /**
  * =====================================================================
- *  VIMEO EXTRACTOR API — server.js
+ *  API UNIFICADA — mi-player-api
  * ---------------------------------------------------------------------
- *  Extrae streams directos (HLS / MP4) de Vimeo y los sirve mediante
- *  proxy CORS-safe para que un reproductor externo (Video.js, Plyr,
- *  <video> nativo) tome el control de la reproducción.
- *
- *  Endpoints:
- *    GET /health
- *    GET /api/vimeo/extract?url=<vimeo-url|id>[&referer=<url>][&format=hls|mp4]
- *    GET /api/vimeo/hls?url=<m3u8>       (uso interno / reproductor HLS)
- *    GET /api/vimeo/proxy?url=<segment>  (uso interno / reproductor HLS/MP4)
+ *  Incluye:
+ *    - Extractor y Proxy de Vimeo (HLS / MP4)
+ *    - Rutas para tu scraper con Puppeteer (películas)
  * =====================================================================
  */
 
@@ -25,13 +19,12 @@ const { URL } = require('url');
 //  CONFIGURACIÓN
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = {
-  PORT: process.env.PORT || 3000,
+  PORT: process.env.PORT || 10000, // Render usa 10000 por defecto en Docker
   VIMEO_UA: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
             '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
   TIMEOUT_MS: 15000,
-  CACHE_TTL_MS: 8 * 60 * 1000,     // 8 min (las URLs de Vimeo caducan en ~15)
+  CACHE_TTL_MS: 8 * 60 * 1000,
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || '*',
-  // Allowlist de hosts para evitar SSRF / open proxy
   ALLOWED_HOST_PATTERNS: [
     /^player\.vimeo\.com$/i,
     /^vimeo\.com$/i,
@@ -60,7 +53,7 @@ setInterval(() => {
 }, 60_000).unref();
 
 // ─────────────────────────────────────────────────────────────────────
-//  HELPERS
+//  HELPERS VIMEO
 // ─────────────────────────────────────────────────────────────────────
 function isAllowedHost(hostname) {
   return CONFIG.ALLOWED_HOST_PATTERNS.some((rx) => rx.test(hostname));
@@ -79,11 +72,6 @@ function publicBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
-/**
- * Acepta: URL de Vimeo, URL de player, o solo el ID numérico.
- * Devuelve { videoId, videoHash } — el hash es necesario para videos
- * no listados (unlisted/private).
- */
 function parseVimeoInput(input) {
   if (!input) throw new Error('Falta el parámetro url o id');
   if (/^\d+$/.test(String(input).trim())) {
@@ -101,7 +89,6 @@ function parseVimeoInput(input) {
   };
 }
 
-/** Llama al endpoint /config no oficial de Vimeo. */
 async function fetchVimeoConfig(videoId, videoHash, referer) {
   const hashParam = videoHash ? `?h=${videoHash}` : '';
   const url = `https://player.vimeo.com/video/${videoId}/config${hashParam}`;
@@ -119,21 +106,17 @@ async function fetchVimeoConfig(videoId, videoHash, referer) {
   return res.data;
 }
 
-/** Devuelve { format, streamUrl, qualities } desde el config de Vimeo. */
 function pickBestStream(config) {
   const files = config?.request?.files || {};
   const qualities = [];
 
-  // 1) HLS — preferido por ser adaptativo
   if (files.hls?.cdns) {
     const cdns = files.hls.cdns;
     const defaultCdn = files.hls.default_cdn || Object.keys(cdns)[0];
     const cdn = cdns[defaultCdn];
-    // avc_url es la variante AVC (máxima compatibilidad)
     const masterUrl = cdn?.avc_url || cdn?.url;
     if (masterUrl) {
       qualities.push({ type: 'hls', url: masterUrl, quality: 'auto' });
-      // Si hay variantes explícitas, exponerlas
       for (const [k, v] of Object.entries(cdns)) {
         if (v?.url && v.url !== masterUrl) {
           qualities.push({ type: 'hls', url: v.url, quality: k });
@@ -143,7 +126,6 @@ function pickBestStream(config) {
     }
   }
 
-  // 2) Progressive MP4
   if (Array.isArray(files.progressive) && files.progressive.length) {
     const sorted = [...files.progressive].sort((a, b) => (b.height || 0) - (a.height || 0));
     for (const p of sorted) {
@@ -160,7 +142,6 @@ function pickBestStream(config) {
   throw new Error('No hay streams disponibles (HLS/MP4) en el config');
 }
 
-/** Envuelve una URL de Vimeo a través de nuestro proxy. */
 function wrapProxy(req, type, url) {
   const base = publicBaseUrl(req);
   const ep = type === 'hls' ? '/api/vimeo/hls' : '/api/vimeo/proxy';
@@ -178,18 +159,77 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Range'],
   exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
 }));
+
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl.slice(0, 140)}`);
   next();
 });
 
-// ── HEALTH
-app.get('/health', (_req, res) =>
+// ── RUTA RAÍZ (Interfaz visual)
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>mi-player-api</title>
+      <style>
+        body { font-family: system-ui, sans-serif; background: #0d0d18; color: #f0f0f5; padding: 2rem; }
+        h1 { color: #8b5cf6; }
+        input { width: 100%; max-width: 400px; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #1a1a28; color: white; margin-bottom: 10px; }
+        button { padding: 10px 20px; border-radius: 8px; border: none; background: #7c5cff; color: white; font-weight: bold; cursor: pointer; }
+        pre { background: #1a1a28; padding: 1rem; border-radius: 8px; border: 1px solid #333; overflow-x: auto; max-width: 800px; }
+        .endpoint { color: #4f7fff; font-family: monospace; }
+      </style>
+    </head>
+    <body>
+      <h1>🎬 API en Línea</h1>
+      <p>Servidor funcionando correctamente.</p>
+      
+      <h3>Endpoints de Vimeo:</h3>
+      <ul>
+        <li><span class="endpoint">GET /api/vimeo/extract?url=...</span></li>
+        <li><span class="endpoint">GET /api/vimeo/hls?url=...</span></li>
+        <li><span class="endpoint">GET /api/vimeo/proxy?url=...</span></li>
+      </ul>
+
+      <hr style="border-color: #333; margin: 2rem 0;">
+
+      <h3>Probar extracción de Vimeo:</h3>
+      <input id="vurl" type="text" value="https://vimeo.com/76979871" placeholder="URL de Vimeo">
+      <button onclick="testExtract()">Extraer Video</button>
+      
+      <pre id="out" style="margin-top: 20px; display: none;"></pre>
+
+      <script>
+        async function testExtract() {
+          const url = document.getElementById('vurl').value;
+          const out = document.getElementById('out');
+          out.style.display = 'block';
+          out.textContent = 'Cargando...';
+          try {
+            const res = await fetch('/api/vimeo/extract?url=' + encodeURIComponent(url));
+            const data = await res.json();
+            out.textContent = JSON.stringify(data, null, 2);
+          } catch(e) {
+            out.textContent = 'Error: ' + e.message;
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// ── HEALTH (Render usa esta ruta para saber si está vivo)
+app.get('/api/health', (_req, res) =>
   res.json({ ok: true, uptime: process.uptime(), now: new Date().toISOString() })
 );
+// Alias de compatibilidad
+app.get('/health', (_req, res) => res.redirect('/api/health'));
 
-// ── EXTRACT
-// GET /api/vimeo/extract?url=<vimeo-url|id>[&referer=...][&format=hls|mp4]
+// ── EXTRACT VIMEO
 app.get('/api/vimeo/extract', async (req, res) => {
   try {
     const { url, referer, format: prefer } = req.query;
@@ -202,7 +242,6 @@ app.get('/api/vimeo/extract', async (req, res) => {
     const config = await fetchVimeoConfig(videoId, videoHash, referer);
     const { format, streamUrl, qualities } = pickBestStream(config);
 
-    // Reordenar si el cliente pidió un formato específico
     let finalFormat = format;
     let finalUrl = streamUrl;
     if (prefer && prefer !== format) {
@@ -221,9 +260,7 @@ app.get('/api/vimeo/extract', async (req, res) => {
       width: meta.width,
       height: meta.height,
       format: finalFormat,
-      // URL directa (caduca en ~15 min y NO es CORS-safe)
       directUrl: finalUrl,
-      // URL proxificada — usa esta en el cliente
       streamUrl: wrapProxy(req, finalFormat === 'hls' ? 'hls' : 'proxy', finalUrl),
       qualities: qualities.map((q) => ({
         ...q,
@@ -240,8 +277,6 @@ app.get('/api/vimeo/extract', async (req, res) => {
 });
 
 // ── HLS PLAYLIST REWRITER
-// Descarga el .m3u8 y reescribe todas las URLs para que vuelvan a pasar
-// por este servidor (sub-playlists → /hls, segmentos/keys → /proxy).
 app.get('/api/vimeo/hls', async (req, res) => {
   try {
     const { url } = req.query;
@@ -258,13 +293,11 @@ app.get('/api/vimeo/hls', async (req, res) => {
     const origin = publicBaseUrl(req);
     let text = String(upstream.data || '');
 
-    // 1) Reescribe atributos URI="..." en #EXT-X-MAP / #EXT-X-KEY / #EXT-X-MEDIA
     text = text.replace(/URI="([^"]+)"/g, (_m, uri) => {
       const abs = new URL(uri, target).href;
       return `URI="${origin}/api/vimeo/proxy?url=${encodeURIComponent(abs)}"`;
     });
 
-    // 2) Reescribe URLs "sueltas" (una por línea)
     text = text.split('\n').map((line) => {
       const t = line.trim();
       if (!t || t.startsWith('#')) return line;
@@ -283,8 +316,7 @@ app.get('/api/vimeo/hls', async (req, res) => {
   }
 });
 
-// ── BINARY PROXY (segmentos HLS, keys, init maps, MP4)
-// Soporta Range → permite seeking en MP4.
+// ── BINARY PROXY
 app.get('/api/vimeo/proxy', async (req, res) => {
   try {
     const { url } = req.query;
@@ -307,7 +339,6 @@ app.get('/api/vimeo/proxy', async (req, res) => {
       validateStatus: (s) => s >= 200 && s < 400,
     });
 
-    // Propaga cabeceras relevantes (incluye Range)
     for (const h of [
       'content-type', 'content-length', 'content-range',
       'accept-ranges', 'cache-control', 'last-modified', 'etag',
@@ -330,6 +361,16 @@ app.get('/api/vimeo/proxy', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// 🔥 AQUÍ DEBES PEGAR TUS RUTAS DE PELÍCULAS / PUPPETEER
+// ─────────────────────────────────────────────────────────────────────
+// Ejemplo:
+// app.get('/api/servers', async (req, res) => { ... });
+// app.get('/api/extract', async (req, res) => { ... });
+// app.get('/api/proxy', async (req, res) => { ... });
+//
+// NOTA: Asegúrate de que no haya conflictos con las rutas /api/vimeo/* de arriba.
+
 // ── 404 / ERROR HANDLER
 app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 app.use((err, _req, res, _next) => {
@@ -342,9 +383,8 @@ app.use((err, _req, res, _next) => {
 // ─────────────────────────────────────────────────────────────────────
 const server = app.listen(CONFIG.PORT, () => {
   console.log('──────────────────────────────────────────────────');
-  console.log(`  Vimeo Extractor API`);
+  console.log(`  mi-player-api en puerto ${CONFIG.PORT}`);
   console.log(`  http://localhost:${CONFIG.PORT}`);
-  console.log(`  Prueba: /api/vimeo/extract?url=https://vimeo.com/76979871`);
   console.log('──────────────────────────────────────────────────');
 });
 
