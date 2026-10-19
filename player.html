@@ -486,7 +486,7 @@ function attachVideoEvents(vid) {
   vid.addEventListener('pause', () => { state.isPlaying = false; els.legendPlayLabel.textContent = 'Reproducir'; });
 }
 
-// [CORREGIDO] MountHls con Autoplay Silenciado y xhrSetup
+// [CORREGIDO FINAL] MountHls
 function mountHls(url, referer) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
@@ -494,7 +494,9 @@ function mountHls(url, referer) {
   vid.playsInline = true; 
   vid.preload = 'metadata'; 
   vid.controls = false; 
-  vid.crossOrigin = 'anonymous';
+  // ⚠️ CRÍTICO: NO usar crossOrigin cuando pasas por tu propio proxy
+  // vid.crossOrigin = 'anonymous';  <-- ELIMINADO
+  
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
@@ -508,11 +510,8 @@ function mountHls(url, referer) {
     const hlsConfig = { 
         maxBufferLength: 30, 
         startLevel: -1, 
-        enableWorker: false,
-        xhrSetup: function(xhr, reqUrl) {
-            // Ayuda a evitar bloqueos por CORS/Origin en algunos CDNs
-            xhr.setRequestHeader('Origin', 'https://vimeos.net');
-        }
+        enableWorker: false
+        // ⚠️ CRÍTICO: Eliminado xhrSetup. El navegador maneja las cabeceras CORS.
     };
     const hls = new Hls(hlsConfig);
     _currentHls = hls;
@@ -520,7 +519,7 @@ function mountHls(url, referer) {
     hls.attachMedia(vid);
     
     hls.on(Hls.Events.MANIFEST_PARSED, () => { 
-        // IMPORTANTE: Mutear para forzar autoplay
+        // Mutear para forzar autoplay en navegadores modernos
         vid.muted = true; 
         vid.play().catch((e) => {
             console.log("Autoplay bloqueado, se requiere clic:", e);
@@ -531,12 +530,17 @@ function mountHls(url, referer) {
     hls.on(Hls.Events.ERROR, (_, d) => { 
         if (d.fatal) {
             console.error('Error HLS fatal:', d);
-            showToast('Error HLS: Token expirado o Proxy falló');
+            if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                showToast('Error de red: Revisa si el proxy está activo o el token expiró');
+            } else {
+                showToast('Error al reproducir el stream');
+            }
         }
     });
   } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
-    vid.src = finalUrl; vid.load();
-    vid.muted = true; // Mutear para forzar autoplay
+    vid.src = finalUrl; 
+    vid.load();
+    vid.muted = true; 
     vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
   }
 }
@@ -545,13 +549,20 @@ function mountMp4(url) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
   const vid = document.createElement('video');
-  vid.playsInline = true; vid.preload = 'metadata'; vid.controls = false; vid.crossOrigin = 'anonymous';
+  vid.playsInline = true; 
+  vid.preload = 'metadata'; 
+  vid.controls = false; 
+  // ⚠️ CRÍTICO: También eliminamos crossOrigin aquí
+  // vid.crossOrigin = 'anonymous';
+  
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideoEvents(vid);
-  vid.src = url; vid.load();
-  vid.muted = true; // Mutear para forzar autoplay
+  
+  vid.src = url; 
+  vid.load();
+  vid.muted = true; 
   vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
 }
 
@@ -573,7 +584,6 @@ function mountIframe(url) {
   updateScrubberUI();
 }
 
-// [CORREGIDO] ExtractFromBackend con Timeout de 15 segundos
 async function extractFromBackend(embedUrl, referer) {
   try {
     const params = new URLSearchParams({ url: embedUrl });
