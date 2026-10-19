@@ -307,7 +307,9 @@
 
 <script>
 const API_BASE = 'https://mi-player-api.onrender.com';
-const PROXY_BASE = '';
+
+// ✅ PROXY CONFIGURADO CORRECTAMENTE
+const PROXY_BASE = API_BASE + '/api/proxy';
 
 // ─── Hosts que se extraen con HLS (control total) → van PRIMERO ─
 const HLS_HOSTS = /vimeos|vimeo|streamwish|filelions|vidhide|vidmoly|voe|filemoon|doodstream|mixdrop|streamtape|okru|filelion|embedwish|hglink|flaswish|morencius|minochinos|callistanise|uqload|powvideo|streamplay|fastream|mp4upload|streamsb|streamhide|netu|vinovo|embedgram|vidspeed|nupload/i;
@@ -399,9 +401,6 @@ function triggerActionFlash(iconMarkup) {
   }, 550);
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// Acepta tanto string como { url, referer, server }
-// ══════════════════════════════════════════════════════════════════════════
 function normalizeEntry(entry, fallbackKey) {
   if (entry && typeof entry === 'object' && typeof entry.url === 'string') {
     return {
@@ -500,9 +499,12 @@ function mountHls(url, referer) {
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideoEvents(vid);
+  
+  // ✅ FIX: Se concatena correctamente la URL del proxy
   const finalUrl = PROXY_BASE
-    ? (PROXY_BASE + '/?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(referer || url))
+    ? (PROXY_BASE + '?url=' + encodeURIComponent(url) + '&referer=' + encodeURIComponent(referer || url))
     : url;
+
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     const hls = new Hls({ maxBufferLength: 30, startLevel: -1, enableWorker: true });
     _currentHls = hls;
@@ -528,10 +530,6 @@ function mountMp4(url) {
   vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// ✅ FIX: sin sandbox, sin referrerpolicy — máxima compatibilidad con
-//         StreamTape, PlayLatinsrc, VOE, StreamWish, etc.
-// ══════════════════════════════════════════════════════════════════════════
 function mountIframe(url) {
   const iframe = document.createElement('iframe');
   iframe.className = 'w-full h-full absolute inset-0 border-0';
@@ -541,7 +539,6 @@ function mountIframe(url) {
   iframe.setAttribute('webkitallowfullscreen', 'true');
   iframe.setAttribute('mozallowfullscreen', 'true');
   iframe.setAttribute('scrolling', 'no');
-  // ⚠️ NO añadir sandbox ni referrerpolicy: rompen StreamTape, PlayLatinsrc, etc.
   iframe.src = url;
   els.stage.appendChild(iframe);
   _currentFrame = iframe;
