@@ -8,25 +8,29 @@ async function extractVideoapp(embedUrl) {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
-            'Referer': 'https://videoapp.zip/' // Referer importante
+            'Referer': 'https://videoapp.zip/'
         };
 
-        // 1. Petición a videoapp.zip
         const res = await axios.get(embedUrl, { headers: baseHeaders, timeout: 10000 });
-        
-        // 2. Búsqueda más flexible: cualquier iframe que contenga "vimeos.net"
-        const iframeMatch = res.data.match(/<iframe[^>]+src="([^"]*vimeos\.net[^"]+)"/i);
+        const html = res.data;
+
+        // 1. DETECTAR SI EL VIDEO NO EXISTE
+        if (html.includes('Contenido no disponible') || html.includes('no está disponible')) {
+            console.warn(`[videoapp] El video no está disponible en este servidor (ID: ${embedUrl.split('/').pop()})`);
+            return null; // Retornamos null para que el registry lo ignore
+        }
+
+        // 2. BUSCAR EL IFRAME
+        const iframeMatch = html.match(/<iframe[^>]+src="([^"]*vimeos\.net[^"]+)"/i);
         
         if (!iframeMatch) {
             console.warn('[videoapp] No se encontró el iframe de vimeos.net en el HTML.');
-            // Fallback: Devolver la URL original como iframe si no hay otra opción
-            return { url: embedUrl, isIframe: true };
+            return null;
         }
 
         const vimeosUrl = iframeMatch[1];
-        console.log(`[videoapp] Iframe encontrado: ${vimeosUrl}`);
 
-        // 3. Petición a vimeos.net para extraer el .m3u8
+        // 3. PEDIR EL M3U8 A VIMEOS
         const vimeosRes = await axios.get(vimeosUrl, {
             headers: { ...baseHeaders, 'Referer': 'https://videoapp.zip/' },
             timeout: 10000
@@ -43,13 +47,12 @@ async function extractVideoapp(embedUrl) {
             };
         }
 
-        // Si no hay .m3u8, devolver el iframe como respaldo
-        console.warn('[videoapp] No se encontró el .m3u8. Devolviendo iframe.');
-        return { url: vimeosUrl, referer: 'https://videoapp.zip/', isIframe: true };
+        // Si vimeos está pero no hay m3u8, lo ignoramos también
+        return null;
 
     } catch (error) {
         console.error('[videoapp] Error crítico:', error.message);
-        return { url: embedUrl, isIframe: true };
+        return null;
     }
 }
 
