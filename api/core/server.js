@@ -1,25 +1,27 @@
+// api/core/server.js
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+
 const app = express();
 
-// 1. Tu configuración de CORS (Perfecta)
+// 1. Configuración de CORS (Tus dominios permitidos)
 app.use(cors({
   origin: [
-    'https://mi-player.netlify.app',
-    /\.netlify\.app$/,
-    /\.onrender\.com$/,
+    'https://mi-player.netlify.app',    // tu frontend
+    /\.netlify\.app$/,                   // cualquier preview de Netlify
+    /\.onrender\.com$/,                  // tu propio backend
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: false,
 }));
 
-// ... Aquí van tus otras rutas (ej: /api/sources) ...
+// ... Aquí van tus otras rutas (ej: /api/sources, /api/servers, etc) ...
 
-// 2. RUTA DEL PROXY (NUEVA Y CORREGIDA)
+// 2. RUTA DEL PROXY (Optimizada para Vimeo/HLS)
 app.get('/api/proxy', async (req, res) => {
     const urlDestino = req.query.url;
-    const refererDestino = req.query.referer || 'https://videoapp.zip/'; 
+    const refererDestino = req.query.referer || 'https://videoapp.zip/';
     
     if (!urlDestino) return res.status(400).send('Falta el parámetro URL');
 
@@ -39,13 +41,20 @@ app.get('/api/proxy', async (req, res) => {
             let contenidoM3U8 = response.data;
             const baseUrl = urlDestino.substring(0, urlDestino.lastIndexOf('/') + 1);
             
+            // Construir la URL absoluta de tu proxy de Render
+            const miProxy = `${req.protocol}://${req.get('host')}/api/proxy`;
+
+            // Reescribir llaves de encriptación
             contenidoM3U8 = contenidoM3U8.replace(/URI="([^"]+)"/g, (match, p1) => {
-                return `URI="/api/proxy?url=${encodeURIComponent(new URL(p1, baseUrl).href)}&referer=${encodeURIComponent(refererDestino)}"`;
+                const urlAbsoluta = new URL(p1, baseUrl).href;
+                return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}&referer=${encodeURIComponent(refererDestino)}"`;
             });
             
+            // Reescribir segmentos de video (.ts)
             contenidoM3U8 = contenidoM3U8.split('\n').map(line => {
                 if (line && !line.startsWith('#')) {
-                    return `/api/proxy?url=${encodeURIComponent(new URL(line, baseUrl).href)}&referer=${encodeURIComponent(refererDestino)}`;
+                    const urlAbsoluta = new URL(line, baseUrl).href;
+                    return `${miProxy}?url=${encodeURIComponent(urlAbsoluta)}&referer=${encodeURIComponent(refererDestino)}`;
                 }
                 return line;
             }).join('\n');
@@ -62,7 +71,7 @@ app.get('/api/proxy', async (req, res) => {
     }
 });
 
-// 3. Tu app.listen
+// 3. Escuchar el puerto (Render usa el 10000 por defecto)
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
     console.log(`Servidor escuchando en puerto ${PORT}`);
