@@ -33,7 +33,7 @@ function getBrowser() {
                 '--disable-background-timer-throttling',
                 '--disable-backgrounding-occluded-windows',
                 '--disable-renderer-backgrounding',
-                '--disable-blink-features=AutomationControlled',   // ← anti-detección
+                '--disable-blink-features=AutomationControlled',
                 '--window-size=1280,720',
             ],
             timeout: 30000,
@@ -106,14 +106,10 @@ async function extractStream(url) {
         page.setDefaultTimeout(20000);
         page.setDefaultNavigationTimeout(25000);
 
-        // ─── Captura de streams ───────────────────────────────────
-        // ⚠️ NO usamos setRequestInterception para no abortar `media`
-        //    (el .mp4 de StreamWish se pide como resourceType=media)
+        let captured = null;
+        let finalUrl = url;
 
-        let captured = null;   // { url, kind }
-        let finalUrl = url;    // tras redirects
-
-        // Capturamos en `request` (se dispara ANTES de cualquier abort)
+        // Captura en request
         page.on('request', (req) => {
             if (captured) return;
             const reqUrl = req.url();
@@ -126,7 +122,7 @@ async function extractStream(url) {
             }
         });
 
-        // Captura en `response` (fallback, por si el request no expone la URL)
+        // Captura en response
         page.on('response', (res) => {
             if (captured) return;
             const resUrl = res.url();
@@ -140,7 +136,6 @@ async function extractStream(url) {
             }
         });
 
-        // Cerrar popups de ads
         page.on('popup', (p) => p.close().catch(() => {}));
 
         // ─── Navegar ──────────────────────────────────────────────
@@ -171,33 +166,24 @@ async function extractStream(url) {
                     await withTimeout(
                         frame.evaluate(() => {
                             const selectors = [
-                                '.play-button',
-                                '.vjs-big-play-button',
-                                'button[aria-label*="play" i]',
-                                '.jw-display-icon-container',
-                                '.jw-icon-playback',
-                                'video',
+                                '.play-button', '.vjs-big-play-button',
+                                'button[aria-label*="play" i]', '.jw-display-icon-container',
+                                '.jw-icon-playback', 'video',
                             ];
                             for (const sel of selectors) {
                                 const el = document.querySelector(sel);
                                 if (el) {
-                                    if (el.tagName === 'VIDEO') {
-                                        el.play?.();
-                                        el.muted = true;
-                                    } else if (typeof el.click === 'function') {
-                                        el.click();
-                                    }
+                                    if (el.tagName === 'VIDEO') { el.play?.(); el.muted = true; }
+                                    else if (typeof el.click === 'function') { el.click(); }
                                     return sel;
                                 }
                             }
                         }),
-                        3000,
-                        'click-play'
+                        3000, 'click-play'
                     ).catch(() => {});
                 } catch (_) {}
             }
 
-            // Dar 8s más para que el stream se cargue
             const start2 = Date.now();
             while (!captured && Date.now() - start2 < 8000) {
                 await new Promise(r => setTimeout(r, 300));
@@ -208,14 +194,26 @@ async function extractStream(url) {
         if (captured) {
             console.log(`[Puppeteer] ✅ ${captured.kind.toUpperCase()}:`, captured.url.slice(0, 130));
 
-            // Referer = origen de la URL final (después del redirect)
             let referer = url;
             try { referer = new URL(finalUrl).origin + '/'; } catch (_) {}
+
+            // ═══════════════════════════════════════════════════════
+            // 🔥 AQUÍ EXTRAEMOS LA COOKIE DE LA SESIÓN
+            // ═══════════════════════════════════════════════════════
+            let cookieString = '';
+            try {
+                const cookies = await page.cookies();
+                cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                console.log(`[Puppeteer] 🍪 Cookies capturadas: ${cookies.length}`);
+            } catch (err) {
+                console.warn('[Puppeteer] Error capturando cookies:', err.message);
+            }
 
             return {
                 stream: captured.url,
                 kind: captured.kind,
                 referer,
+                cookie: cookieString // <--- ¡Enviamos la cookie al extractor!
             };
         }
 
