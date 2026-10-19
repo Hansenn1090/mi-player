@@ -126,12 +126,13 @@ app.get('/api/extract', async (req, res) => {
             return res.json({ error: 'No se pudo extraer el stream' });
         }
 
-        // 🔥 AQUÍ SE DEVUELVE LA COOKIE AL REPRODUCTOR
+        // 🔥 DEVOLVEMOS COOKIE Y EL CONTENIDO M3U8 AL REPRODUCTOR
         res.json({
             stream:  result.stream,
             kind:    result.kind    || 'hls',
             referer: result.referer || referer || url,
-            cookie:  result.cookie  || '' 
+            cookie:  result.cookie  || '',
+            m3u8Content: result.m3u8Content || null // Pasamos el texto pre-descargado
         });
     } catch (err) {
         console.error('[server] /api/extract:', err);
@@ -140,90 +141,98 @@ app.get('/api/extract', async (req, res) => {
 });
 
 // ═════════════════════════════════════════════════════════════════
-// GET /api/proxy  →  RUTA CRÍTICA CON MANEJO DE COOKIES
+// GET /api/proxy  →  RUTA CRÍTICA CON MANEJO DE COOKIES Y M3U8 PRE-DESCARGADO
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/proxy', async (req, res) => {
-    // 🔥 RECIBIMOS LA COOKIE DESDE EL FRONTEND
-    const { url: urlDestino, referer: refererDestino, cookie } = req.query;
+    // 🔥 RECIBIMOS LA COOKIE Y EL M3U8 CONTENT DESDE EL FRONTEND
+    const { url: urlDestino, referer: refererDestino, cookie, m3u8Content } = req.query;
     
     if (!urlDestino) return res.status(400).send('Falta el parámetro URL');
 
     try {
         const isM3U8 = urlDestino.includes('.m3u8') || urlDestino.includes('.txt');
-        
-        // Construimos los headers
-        const headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Referer': refererDestino || 'https://vimeos.net/',
-            'Origin': 'https://vimeos.net',
-            'Accept': '*/*'
-        };
+        let contenidoM3U8 = '';
 
-        // 🔥 SI HAY COOKIE, LA INYECTAMOS PARA EVITAR EL 403
-        if (cookie) {
-            headers['Cookie'] = decodeURIComponent(cookie);
-        }
+        // 🔥 SI ES M3U8 Y YA TENEMOS EL TEXTO, NOS SALTAMOS AXIOS (Evita el 403)
+        if (isM3U8 && m3u8Content) {
+            console.log('[Proxy] ✅ Usando M3U8 pre-descargado por Puppeteer');
+            contenidoM3U8 = decodeURIComponent(m3u8Content);
+        } else {
+            // Si es un segmento .ts o no hay texto, hacemos la petición normal con Axios
+            const headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Referer': refererDestino || 'https://vimeos.net/',
+                'Origin': 'https://vimeos.net',
+                'Accept': '*/*'
+            };
 
-        const response = await axios({
-            method: 'get',
-            url: urlDestino,
-            responseType: 'arraybuffer',
-            maxRedirects: 0,
-            validateStatus: (status) => status >= 200 && status < 400,
-            headers: headers
-        });
-
-        // Manejo manual de redirecciones manteniendo la cookie
-        if (response.status >= 300 && response.status < 400 && response.headers.location) {
-            const redirectUrl = response.headers.location;
-            let redirectProxy = `/api/proxy?url=${encodeURIComponent(redirectUrl)}&referer=${encodeURIComponent(refererDestino)}`;
             if (cookie) {
-                redirectProxy += `&cookie=${encodeURIComponent(cookie)}`;
-            }
-            return res.redirect(redirectProxy);
-        }
-
-        if (isM3U8) {
-            let contenidoM3U8 = Buffer.from(response.data).toString('utf8');
-            
-            const urlObj = new URL(urlDestino);
-            const baseUrl = urlObj.href.substring(0, urlObj.href.lastIndexOf('/') + 1);
-            const miProxy = `${req.protocol}://${req.get('host')}/api/proxy`;
-
-            // 🔥 CREAMOS EL SUFIJO CON LA COOKIE PARA LOS SEGMENTOS
-            let urlSuffix = `&referer=${encodeURIComponent(refererDestino)}`;
-            if (cookie) {
-                urlSuffix += `&cookie=${encodeURIComponent(cookie)}`;
+                headers['Cookie'] = decodeURIComponent(cookie);
             }
 
-            // Reescribir llaves
-            contenidoM3U8 = contenidoM3U8.replace(/URI="([^"]+)"/g, (match, p1) => {
-                try {
-                    const urlAbsoluta = new URL(p1, baseUrl).href;
-                    return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}"`;
-                } catch (e) { return match; }
+            const response = await axios({
+                method: 'get',
+                url: urlDestino,
+                responseType: 'arraybuffer',
+                maxRedirects: 0,
+                validateStatus: (status) => status >= 200 && status < 400,
+                headers: headers
             });
 
-            // Reescribir segmentos
-            contenidoM3U8 = contenidoM3U8.split('\n').map(line => {
-                const cleanLine = line.trim(); 
-                if (cleanLine && !cleanLine.startsWith('#')) {
-                    try {
-                        const urlAbsoluta = new URL(cleanLine, baseUrl).href;
-                        return `${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}`;
-                    } catch (e) { return cleanLine; }
+            // Manejo manual de redirecciones manteniendo la cookie
+            if (response.status >= 300 && response.status < 400 && response.headers.location) {
+                const redirectUrl = response.headers.location;
+                let redirectProxy = `/api/proxy?url=${encodeURIComponent(redirectUrl)}&referer=${encodeURIComponent(refererDestino)}`;
+                if (cookie) {
+                    redirectProxy += `&cookie=${encodeURIComponent(cookie)}`;
                 }
-                return cleanLine;
-            }).join('\n');
+                return res.redirect(redirectProxy);
+            }
 
-            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            return res.send(contenidoM3U8);
-        } else {
-            res.setHeader('Content-Type', response.headers['content-type'] || 'video/MP2T');
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            return res.send(Buffer.from(response.data));
+            if (isM3U8) {
+                contenidoM3U8 = Buffer.from(response.data).toString('utf8');
+            } else {
+                // Devolver binarios (.ts o .key)
+                res.setHeader('Content-Type', response.headers['content-type'] || 'video/MP2T');
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                return res.send(Buffer.from(response.data));
+            }
         }
+
+        // ─── REESCRITURA DEL M3U8 ───
+        const urlObj = new URL(urlDestino);
+        const baseUrl = urlObj.href.substring(0, urlObj.href.lastIndexOf('/') + 1);
+        const miProxy = `${req.protocol}://${req.get('host')}/api/proxy`;
+
+        let urlSuffix = `&referer=${encodeURIComponent(refererDestino)}`;
+        if (cookie) {
+            urlSuffix += `&cookie=${encodeURIComponent(cookie)}`;
+        }
+
+        // Reescribir llaves
+        contenidoM3U8 = contenidoM3U8.replace(/URI="([^"]+)"/g, (match, p1) => {
+            try {
+                const urlAbsoluta = new URL(p1, baseUrl).href;
+                return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}"`;
+            } catch (e) { return match; }
+        });
+
+        // Reescribir segmentos
+        contenidoM3U8 = contenidoM3U8.split('\n').map(line => {
+            const cleanLine = line.trim(); 
+            if (cleanLine && !cleanLine.startsWith('#')) {
+                try {
+                    const urlAbsoluta = new URL(cleanLine, baseUrl).href;
+                    return `${miProxy}?url=${encodeURIComponent(urlAbsoluta)}${urlSuffix}`;
+                } catch (e) { return cleanLine; }
+            }
+            return cleanLine;
+        }).join('\n');
+
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        return res.send(contenidoM3U8);
+
     } catch (error) {
         console.error(`[Proxy Error] URL: ${urlDestino.substring(0, 50)}... | Status:`, error.response ? error.response.status : error.message);
         res.status(500).send('Error interno del proxy');
