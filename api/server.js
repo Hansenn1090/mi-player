@@ -1,6 +1,6 @@
 /**
  * =====================================================================
- *  API UNIFICADA Y CORREGIDA — mi-player-api
+ *  API UNIFICADA — mi-player-api (TMDB + Scrapers + Vimeo)
  * =====================================================================
  */
 
@@ -18,42 +18,62 @@ const PORT = process.env.PORT || 10000;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// ── RUTA RAÍZ
-app.get('/', (req, res) => {
-  res.send(`
-    <h1>API en Línea</h1>
-    <p><a href="/api/servers?id=315635&type=movie">Probar /api/servers (Películas)</a></p>
-    <p><a href="/api/vimeo/extract?url=https://vimeo.com/76979871">Probar Vimeo</a></p>
-  `);
-});
+// ── CONFIGURACIÓN
+const CONFIG = {
+  TMDB_KEY: '2d85217008ed46189916cf9cf1eaef53',
+  VIMEO_UA: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  TIMEOUT_MS: 15000,
+  ALLOWED_HOST_PATTERNS: [
+    /^player\.vimeo\.com$/i,
+    /^vimeo\.com$/i,
+    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vimeo\.com$/i,
+    /^[a-z0-9-]+(\.[a-z0-9-]+)*\.vimeocdn\.com$/i,
+  ],
+};
 
-// ── HEALTH
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// ── HELPERS VIMEO
+function isAllowedHost(hostname) {
+  return CONFIG.ALLOWED_HOST_PATTERNS.some((rx) => rx.test(hostname));
+}
+function assertAllowedUrl(urlString) {
+  const u = new URL(urlString);
+  if (!['http:', 'https:'].includes(u.protocol)) throw new Error('Protocolo no permitido');
+  if (!isAllowedHost(u.hostname)) throw new Error('Host no permitido: ' + u.hostname);
+  return u;
+}
+function publicBaseUrl(req) {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host  = req.headers['x-forwarded-host']  || req.get('host');
+  return `${proto}://${host}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────
-// 🔥 RUTA QUE FALTABA: /api/servers (Para tus películas)
+// 🔥 RUTA PARA BUSCAR PELÍCULAS (Usa TMDB + Scrapers)
 // ─────────────────────────────────────────────────────────────────────
-const TMDB_KEY = '2d85217008ed46189916cf9cf1eaef53';
-
 app.get('/api/servers', async (req, res) => {
   try {
-    const { id, type } = req.query;
+    const { id, type = 'movie' } = req.query;
     if (!id) return res.status(400).json({ error: 'Falta ID' });
 
-    // 1. Obtener info de la película desde TMDB
-    const tmdbUrl = `https://api.themoviedb.org/3/${type}/${id}?api_key=${TMDB_KEY}&language=es-ES`;
-    const tmdbRes = await axios.get(tmdbUrl);
+    // 1. Obtener info de TMDB
+    const tmdbRes = await axios.get(`https://api.themoviedb.org/3/${type}/${id}?api_key=${CONFIG.TMDB_KEY}&language=es-ES`);
     const movie = tmdbRes.data;
 
-    // 2. Crear los servidores falsos (Simulando los que hacía Puppeteer)
+    // 2. Crear servidores (Aquí es donde tus scrapers de Puppeteer entran)
+    // Para este ejemplo, simulamos que el primer servidor devuelve un Vimeo.
+    // 🔥 AQUÍ DEBES PONER TU LÓGICA REAL DE SCRAPING (PelisPlusHD, Cuevana, etc.)
+    
     const servers = {
       latino: {
-        vimeo: { url: "https://vimeo.com/76979871" }, // Servidor 1: Vimeo
-        unlimplay: { url: `https://unlimplay.com/f/embed/movie/${movie.imdb_id || id}` }, // Servidor 2
+        // Si tu scraper encuentra un enlace de Vimeo, lo pones aquí:
+        vimeo: { url: "https://vimeo.com/76979871" }, 
+        
+        // Si tu scraper encuentra otros enlaces, los pones aquí:
+        pelisplushd: { url: `https://pelisplushd.to/pelicula/${movie.title.toLowerCase().replace(/\s+/g, '-')}/` },
       }
     };
 
-    // 3. Responder al reproductor con el formato que espera
+    // 3. Responder al reproductor
     res.json({
       meta: {
         title: movie.title || movie.name,
@@ -66,15 +86,14 @@ app.get('/api/servers', async (req, res) => {
       servers: servers
     });
   } catch (error) {
+    console.error("Error en /api/servers:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// 🔥 RUTAS DE VIMEO (Ya estaban bien)
+// 🔥 RUTAS DE VIMEO
 // ─────────────────────────────────────────────────────────────────────
-const VIMEO_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
 app.get('/api/vimeo/extract', async (req, res) => {
   try {
     const { url } = req.query;
@@ -90,9 +109,8 @@ app.get('/api/vimeo/extract', async (req, res) => {
 
     const hashParam = videoHash ? `?h=${videoHash}` : '';
     const configUrl = `https://player.vimeo.com/video/${videoId}/config${hashParam}`;
-    
     const response = await axios.get(configUrl, {
-      headers: { 'User-Agent': VIMEO_UA, 'Referer': 'https://player.vimeo.com/' }
+      headers: { 'User-Agent': CONFIG.VIMEO_UA, 'Referer': 'https://player.vimeo.com/' }
     });
 
     const config = response.data;
@@ -132,7 +150,7 @@ app.get('/api/vimeo/hls', async (req, res) => {
   try {
     const { url } = req.query;
     const upstream = await axios.get(url, {
-      headers: { 'User-Agent': VIMEO_UA, 'Referer': 'https://player.vimeo.com/' },
+      headers: { 'User-Agent': CONFIG.VIMEO_UA, 'Referer': 'https://player.vimeo.com/' },
       responseType: 'text',
       transformResponse: [(x) => x],
     });
@@ -159,7 +177,7 @@ app.get('/api/vimeo/hls', async (req, res) => {
 app.get('/api/vimeo/proxy', async (req, res) => {
   try {
     const { url } = req.query;
-    const headers = { 'User-Agent': VIMEO_UA, 'Referer': 'https://player.vimeo.com/' };
+    const headers = { 'User-Agent': CONFIG.VIMEO_UA, 'Referer': 'https://player.vimeo.com/' };
     if (req.headers.range) headers.Range = req.headers.range;
 
     const upstream = await axios({ method: 'GET', url, headers, responseType: 'stream' });
@@ -174,10 +192,13 @@ app.get('/api/vimeo/proxy', async (req, res) => {
   }
 });
 
+// ── HEALTH
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
 // ── SERVIR ARCHIVOS ESTÁTICOS
 app.use(express.static(path.join(__dirname)));
 
-// ── 404 / ERROR HANDLER
+// ── 404
 app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 
 app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
