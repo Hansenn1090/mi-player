@@ -2,6 +2,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios'); // Necesario para el proxy
 const app = express();
 
 app.use(express.json());
@@ -98,7 +99,7 @@ app.get('/api/servers', async (req, res) => {
 // GET /api/extract?url=...  →  extrae .m3u8 / .mp4 de un embed
 // ═════════════════════════════════════════════════════════════════
 app.get('/api/extract', async (req, res) => {
-    const url = req.query.url;
+    const { url, referer } = req.query; // Recibimos el referer desde el frontend
 
     if (!url) {
         return res.status(400).json({ error: 'Falta parámetro url' });
@@ -119,7 +120,8 @@ app.get('/api/extract', async (req, res) => {
             return res.json({ error: 'Extractor sin función extract' });
         }
 
-        const result = await fn(url);
+        // Pasamos el referer al extractor (si tu función lo soporta como segundo parámetro)
+        const result = await fn(url, { referer: referer || url });
 
         if (!result || !result.stream) {
             return res.json({ error: 'No se pudo extraer el stream' });
@@ -128,11 +130,83 @@ app.get('/api/extract', async (req, res) => {
         res.json({
             stream:  result.stream,
             kind:    result.kind    || 'hls',
-            referer: result.referer || url
+            referer: result.referer || referer || url // Devolvemos el referer
         });
     } catch (err) {
         console.error('[server] /api/extract:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ═════════════════════════════════════════════════════════════════
+// GET /api/proxy  →  RUTA CRÍTICA RECUPERADA E INTEGRADA
+// ═════════════════════════════════════════════════════════════════
+app.get('/api/proxy', async (req, res) => {
+    const urlDestino = req.query.url;
+    const refererDestino = req.query.referer || 'https://vimeos.net/';
+    
+    if (!urlDestino) return res.status(400).send('Falta el parámetro URL');
+
+    try {
+        const isM3U8 = urlDestino.includes('.m3u8') || urlDestino.includes('.txt');
+        
+        const response = await axios({
+            method: 'get',
+            url: urlDestino,
+            responseType: 'arraybuffer', // Siempre arraybuffer
+            maxRedirects: 0,             // CRÍTICO: No perder headers en redirecciones
+            validateStatus: (status) => status >= 200 && status < 400,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Referer': refererDestino,
+                'Origin': 'https://vimeos.net',
+                'Accept': '*/*'
+            }
+        });
+
+        // Manejo manual de redirecciones para mantener el Referer
+        if (response.status >= 300 && response.status < 400 && response.headers.location) {
+            const redirectUrl = response.headers.location;
+            return res.redirect(`/api/proxy?url=${encodeURIComponent(redirectUrl)}&referer=${encodeURIComponent(refererDestino)}`);
+        }
+
+        if (isM3U8) {
+            let contenidoM3U8 = Buffer.from(response.data).toString('utf8');
+            
+            const urlObj = new URL(urlDestino);
+            const baseUrl = urlObj.href.substring(0, urlObj.href.lastIndexOf('/') + 1);
+            const miProxy = `${req.protocol}://${req.get('host')}/api/proxy`;
+
+            // Reescribir segmentos y llaves
+            contenidoM3U8 = contenidoM3U8.replace(/URI="([^"]+)"/g, (match, p1) => {
+                try {
+                    const urlAbsoluta = new URL(p1, baseUrl).href;
+                    return `URI="${miProxy}?url=${encodeURIComponent(urlAbsoluta)}&referer=${encodeURIComponent(refererDestino)}"`;
+                } catch (e) { return match; }
+            });
+
+            contenidoM3U8 = contenidoM3U8.split('\n').map(line => {
+                const cleanLine = line.trim(); 
+                if (cleanLine && !cleanLine.startsWith('#')) {
+                    try {
+                        const urlAbsoluta = new URL(cleanLine, baseUrl).href;
+                        return `${miProxy}?url=${encodeURIComponent(urlAbsoluta)}&referer=${encodeURIComponent(refererDestino)}`;
+                    } catch (e) { return cleanLine; }
+                }
+                return cleanLine;
+            }).join('\n');
+
+            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            return res.send(contenidoM3U8);
+        } else {
+            res.setHeader('Content-Type', response.headers['content-type'] || 'video/MP2T');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            return res.send(Buffer.from(response.data));
+        }
+    } catch (error) {
+        console.error(`[Proxy Error] URL: ${urlDestino.substring(0, 50)}... | Status:`, error.response ? error.response.status : error.message);
+        res.status(500).send('Error interno del proxy');
     }
 });
 
