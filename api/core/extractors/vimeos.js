@@ -11,7 +11,6 @@ async function extractVimeos(embedUrl) {
 
   // ══════════════════════════════════════════════════════════════════
   // USAMOS DIRECTAMENTE PUPPETEER OPTIMIZADO
-  // (Axios es inútil aquí por la ofuscación JS)
   // ══════════════════════════════════════════════════════════════════
   try {
     // Límite estricto de 15 segundos para evitar que el token caduque
@@ -24,12 +23,13 @@ async function extractVimeos(embedUrl) {
     if (result && result.stream) {
       console.log('[vimeos] ✅ Stream encontrado en tiempo real:', result.stream.slice(0, 80));
       
-      // IMPORTANTE: Devolvemos el referer y userAgent para que el reproductor los use
+      // 🔥 IMPORTANTE: Devolvemos la cookie capturada por Puppeteer
       return {
         stream: result.stream,
         kind: 'hls',
         referer: 'https://vimeos.net/', // Vimeos exige estrictamente este Referer
-        userAgent: UA
+        userAgent: UA,
+        cookie: result.cookie || ''     // <--- AÑADIDO: Pasamos la cookie hacia arriba
       };
     }
   } catch (e) {
