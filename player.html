@@ -486,11 +486,15 @@ function attachVideoEvents(vid) {
   vid.addEventListener('pause', () => { state.isPlaying = false; els.legendPlayLabel.textContent = 'Reproducir'; });
 }
 
+// [CORREGIDO] MountHls con Autoplay Silenciado y xhrSetup
 function mountHls(url, referer) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
   const vid = document.createElement('video');
-  vid.playsInline = true; vid.preload = 'metadata'; vid.controls = false; vid.crossOrigin = 'anonymous';
+  vid.playsInline = true; 
+  vid.preload = 'metadata'; 
+  vid.controls = false; 
+  vid.crossOrigin = 'anonymous';
   wrap.appendChild(vid);
   els.stage.appendChild(wrap);
   _currentFrame = wrap; _currentVideoEl = vid;
@@ -501,17 +505,25 @@ function mountHls(url, referer) {
     : url;
 
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    const hls = new Hls({ 
+    const hlsConfig = { 
         maxBufferLength: 30, 
         startLevel: -1, 
-        enableWorker: false // Desactivado para evitar que el proxy falle
-    });
+        enableWorker: false,
+        xhrSetup: function(xhr, reqUrl) {
+            // Ayuda a evitar bloqueos por CORS/Origin en algunos CDNs
+            xhr.setRequestHeader('Origin', 'https://vimeos.net');
+        }
+    };
+    const hls = new Hls(hlsConfig);
     _currentHls = hls;
     hls.loadSource(finalUrl);
     hls.attachMedia(vid);
     
     hls.on(Hls.Events.MANIFEST_PARSED, () => { 
-        vid.play().catch(() => {
+        // IMPORTANTE: Mutear para forzar autoplay
+        vid.muted = true; 
+        vid.play().catch((e) => {
+            console.log("Autoplay bloqueado, se requiere clic:", e);
             showToast("Haz clic en el video para reproducir");
         }); 
     });
@@ -519,14 +531,16 @@ function mountHls(url, referer) {
     hls.on(Hls.Events.ERROR, (_, d) => { 
         if (d.fatal) {
             console.error('Error HLS fatal:', d);
-            showToast('Error HLS, prueba otro servidor');
+            showToast('Error HLS: Token expirado o Proxy falló');
         }
     });
   } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
     vid.src = finalUrl; vid.load();
+    vid.muted = true; // Mutear para forzar autoplay
     vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
   }
 }
+
 function mountMp4(url) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:absolute;inset:0;background:#000';
@@ -537,6 +551,7 @@ function mountMp4(url) {
   _currentFrame = wrap; _currentVideoEl = vid;
   attachVideoEvents(vid);
   vid.src = url; vid.load();
+  vid.muted = true; // Mutear para forzar autoplay
   vid.addEventListener('canplay', () => vid.play().catch(() => {}), { once: true });
 }
 
@@ -557,17 +572,29 @@ function mountIframe(url) {
   state.currentTime = 0;
   updateScrubberUI();
 }
+
+// [CORREGIDO] ExtractFromBackend con Timeout de 15 segundos
 async function extractFromBackend(embedUrl, referer) {
   try {
     const params = new URLSearchParams({ url: embedUrl });
     if (referer) params.append('referer', referer);
-    const r = await fetch(`${API_BASE}/api/extract?${params.toString()}`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
+    const r = await fetch(`${API_BASE}/api/extract?${params.toString()}`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
     if (!r.ok) return null;
     const data = await r.json();
     if (data.error || !data.stream) return null;
     return { stream: data.stream, kind: data.kind || 'hls', referer: data.referer || referer };
-  } catch (e) { return null; }
+  } catch (e) { 
+    console.warn('[extract] Error o Timeout:', e.message);
+    return null; 
+  }
 }
+
 async function selectServer(num) {
   const srv = state.serversFlat.find(s => s.num === num);
   if (!srv) return;
@@ -605,6 +632,7 @@ async function selectServer(num) {
 
   mountIframe(srv.url);
 }
+
 async function loadMovie(id, type) {
   state.movieId = id; state.movieType = type;
   try {
@@ -647,6 +675,7 @@ async function loadMovie(id, type) {
     els.serversStatusBadge.className = 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30';
   }
 }
+
 function showHUD() { state.isHudVisible = true; els.hud.classList.remove('hud-hidden'); els.btnRevealHud.classList.add('opacity-0', 'pointer-events-none'); }
 function hideHUD() { if (state.isModalOpen || state.isFeedbackOpen || state.isOptionsDrawerOpen) return; state.isHudVisible = false; els.hud.classList.add('hud-hidden'); els.btnRevealHud.classList.remove('opacity-0', 'pointer-events-none'); }
 function resetIdleTimer() {
@@ -695,6 +724,7 @@ function applyAspectRatio(mode) {
   else if (mode === '4-3') frame.style.width = '75%';
   showToast(`Formato: ${mode.toUpperCase()}`);
 }
+
 document.querySelectorAll('#group-formato-pantalla button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#group-formato-pantalla button').forEach(b => { b.classList.remove('tv-btn-active'); const c = b.querySelector('.check-icon'); if (c) c.classList.add('hidden'); });
